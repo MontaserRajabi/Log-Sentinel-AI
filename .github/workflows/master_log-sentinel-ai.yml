@@ -55,10 +55,17 @@ jobs:
       - name: Stop web app (prevent SCM restart during build)
         run: az webapp stop --name Log-Sentinel-Ai --resource-group ${{ steps.rg.outputs.name }}
 
-      - name: Restart SCM to clear any stuck deployment locks
+      - name: Cancel stuck deployment lock via Kudu API
         run: |
-          az webapp restart --name Log-Sentinel-Ai --resource-group ${{ steps.rg.outputs.name }} || true
-          sleep 20
+          TOKEN=$(az account get-access-token --resource https://management.azure.com --query accessToken -o tsv)
+          SCM="https://log-sentinel-ai-h3bmh3hbh6e3c6bx.scm.francecentral-01.azurewebsites.net"
+          # Cancel active deployment
+          curl -s -X DELETE "$SCM/api/deployments/active" \
+            -H "Authorization: Bearer $TOKEN" -o /dev/null || true
+          # Delete deployment lock file if it exists
+          curl -s -X DELETE "$SCM/api/vfs/site/locks/deployment.lock" \
+            -H "Authorization: Bearer $TOKEN" -o /dev/null || true
+          sleep 15
 
       - name: Deploy zip via Azure CLI
         run: |
