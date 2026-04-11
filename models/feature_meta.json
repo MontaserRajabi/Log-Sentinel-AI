@@ -1,0 +1,26 @@
+{
+  "feature_columns": [
+    "num_events",
+    "unique_templates",
+    "avg_msg_len",
+    "std_msg_len",
+    "max_msg_len",
+    "min_msg_len",
+    "error_count",
+    "warn_count",
+    "info_count",
+    "error_ratio",
+    "warn_ratio",
+    "template_entropy",
+    "top_template_ratio",
+    "block_duration_sec",
+    "events_per_sec",
+    "gap_count",
+    "brute_force_hits",
+    "privilege_esc_hits",
+    "dos_hits",
+    "log_tamper_hits",
+    "startup_hits",
+    "network_hits"
+  ]
+}

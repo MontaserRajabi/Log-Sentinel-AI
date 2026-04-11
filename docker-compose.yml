@@ -1,0 +1,81 @@
+version: "3.9"
+
+# ── Log Sentinel AI — Docker Compose ──────────────────────────────────────────
+# Runs the full system:
+#   - backend  : FastAPI ML backend  (port 8000)
+#   - frontend : Flask dashboard     (port 5000)
+#
+# Usage:
+#   docker compose up --build          # build and start everything
+#   docker compose up -d               # run in background
+#   docker compose down                # stop everything
+#   docker compose logs -f backend     # follow backend logs
+#   docker compose logs -f frontend    # follow frontend logs
+
+services:
+
+  # ── ML Backend ──────────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    container_name: log-sentinel-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persist data between container restarts
+      - ./data:/app/data
+      - ./models:/app/models
+    environment:
+      - CONTAMINATION=${CONTAMINATION:-0.01}
+      - RANDOM_STATE=${RANDOM_STATE:-42}
+      - N_ESTIMATORS=${N_ESTIMATORS:-100}
+      - NOTIFY_EMAIL_ENABLED=${NOTIFY_EMAIL_ENABLED:-false}
+      - NOTIFY_EMAIL_FROM=${NOTIFY_EMAIL_FROM:-}
+      - NOTIFY_EMAIL_TO=${NOTIFY_EMAIL_TO:-}
+      - NOTIFY_EMAIL_HOST=${NOTIFY_EMAIL_HOST:-smtp.gmail.com}
+      - NOTIFY_EMAIL_PORT=${NOTIFY_EMAIL_PORT:-587}
+      - NOTIFY_EMAIL_USER=${NOTIFY_EMAIL_USER:-}
+      - NOTIFY_EMAIL_PASS=${NOTIFY_EMAIL_PASS:-}
+      - NOTIFY_MIN_PRIORITY=${NOTIFY_MIN_PRIORITY:-MEDIUM}
+      - NOTIFY_COOLDOWN_SEC=${NOTIFY_COOLDOWN_SEC:-60}
+      - AGENT_API_KEY=${AGENT_API_KEY:-sentinel-secret-key}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # ── Frontend ─────────────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend
+    container_name: log-sentinel-frontend
+    ports:
+      - "5000:5000"
+    volumes:
+      # Persist admin accounts and templates
+      - ./frontend/admins.txt:/app/admins.txt
+      - ./frontend/templates.txt:/app/templates.txt
+    environment:
+      - BACKEND_URL=http://backend:8000   # uses Docker service name, not localhost
+      - AGENT_API_KEY=${AGENT_API_KEY:-sentinel-secret-key}
+      - SECRET_KEY=${SECRET_KEY:-sentinel-change-this-in-production}
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/login')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+# ── Named volumes for persistence ─────────────────────────────────────────────
+volumes:
+  data:
+  models:

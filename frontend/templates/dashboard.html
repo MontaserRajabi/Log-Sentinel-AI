@@ -1,0 +1,894 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Log Sentinel AI — Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+:root {
+  --bg:      #0a0e17;
+  --panel:   #0f1623;
+  --panel2:  #131d2e;
+  --border:  #1a2540;
+  --accent:  #00d4ff;
+  --accent2: #0066ff;
+  --danger:  #ff3b5c;
+  --warn:    #ff9500;
+  --ok:      #00e676;
+  --purple:  #b388ff;
+  --text:    #c8d8f0;
+  --sub:     #4a6080;
+  --mono:    'Share Tech Mono', monospace;
+  --sans:    'Rajdhani', sans-serif;
+}
+/* ── LIGHT MODE ── */
+body.light {
+  --bg:      #f0f4f8;
+  --panel:   #ffffff;
+  --panel2:  #e8edf3;
+  --border:  #d0d9e4;
+  --accent:  #0066cc;
+  --accent2: #0044aa;
+  --danger:  #e02040;
+  --warn:    #d97000;
+  --ok:      #00a855;
+  --purple:  #7c3aed;
+  --text:    #1a2540;
+  --sub:     #6b7fa0;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  background:var(--bg); color:var(--text);
+  font-family:var(--sans); height:100vh;
+  display:flex; flex-direction:column; overflow:hidden;
+}
+
+/* ── TOP BAR ── */
+.topbar {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:0 20px; height:52px;
+  background:var(--panel); border-bottom:1px solid var(--border); flex-shrink:0;
+}
+.topbar-left { display:flex; align-items:center; gap:12px; }
+.topbar h1 { font-size:1.05rem; font-weight:700; letter-spacing:3px; text-transform:uppercase; }
+.topbar h1 span { color:var(--accent); }
+.badge-live {
+  font-family:var(--mono); font-size:.6rem; color:var(--ok);
+  border:1px solid var(--ok); border-radius:2px; padding:2px 7px;
+  letter-spacing:2px; animation:blink 2s ease infinite;
+}
+@keyframes blink { 50%{opacity:.4;} }
+.backend-status {
+  font-family:var(--mono); font-size:.6rem; padding:2px 9px;
+  border-radius:2px; border:1px solid var(--border); color:var(--sub); transition:all .3s;
+}
+.backend-status.online  { color:var(--ok);     border-color:rgba(0,230,118,.4); }
+.backend-status.offline { color:var(--danger); border-color:rgba(255,59,92,.4); }
+
+.topbar-right { display:flex; align-items:center; gap:7px; }
+.btn-sm {
+  font-family:var(--sans); font-size:.75rem; font-weight:600;
+  letter-spacing:1.5px; text-transform:uppercase;
+  padding:5px 13px; border-radius:2px; border:none; cursor:pointer; transition:all .2s;
+  white-space:nowrap;
+}
+.btn-sm:hover { opacity:.85; transform:translateY(-1px); }
+.btn-sm:active { transform:translateY(0); }
+.btn-outline  { background:transparent; border:1px solid var(--border); color:var(--sub); }
+.btn-outline:hover { border-color:var(--accent); color:var(--accent); }
+.btn-danger   { background:rgba(255,59,92,.15);  color:var(--danger); border:1px solid rgba(255,59,92,.3); }
+.btn-accent   { background:linear-gradient(135deg,var(--accent2),var(--accent)); color:#fff; border:none; }
+.btn-ok       { background:rgba(0,230,118,.15);  color:var(--ok);     border:1px solid rgba(0,230,118,.3); }
+.btn-purple   { background:rgba(179,136,255,.15); color:var(--purple); border:1px solid rgba(179,136,255,.3); }
+.btn-warn     { background:rgba(255,149,0,.15);   color:var(--warn);   border:1px solid rgba(255,149,0,.3); }
+.btn-theme    { background:transparent; border:1px solid var(--border); color:var(--sub);
+                font-size:.95rem; padding:4px 10px; border-radius:2px; cursor:pointer;
+                transition:all .2s; line-height:1; }
+.btn-theme:hover { border-color:var(--accent); transform:rotate(20deg) scale(1.1); }
+
+.divider { width:1px; height:22px; background:var(--border); margin:0 3px; }
+
+/* ── STATS ── */
+.stats-row {
+  display:grid; grid-template-columns:repeat(5,1fr);
+  gap:1px; background:var(--border); border-bottom:1px solid var(--border); flex-shrink:0;
+}
+.stat { background:var(--panel); padding:11px 16px; display:flex; flex-direction:column; gap:3px; }
+.stat-label { font-family:var(--mono); font-size:.58rem; color:var(--sub); letter-spacing:2px; text-transform:uppercase; }
+.stat-value { font-family:var(--mono); font-size:1.4rem; font-weight:700; line-height:1; }
+.c-total { color:var(--accent); } .c-high { color:var(--danger); }
+.c-medium { color:var(--warn); } .c-low { color:var(--ok); } .c-acc { color:var(--purple); }
+
+/* ── MAIN ── */
+.main { display:flex; flex:1; overflow:hidden; gap:1px; background:var(--border); }
+.left { display:flex; flex-direction:column; flex:1; overflow:hidden; gap:1px; background:var(--border); }
+
+/* ── TABS ── */
+.tabs { display:flex; background:var(--panel); border-bottom:1px solid var(--border); flex-shrink:0; }
+.tab-btn {
+  font-family:var(--mono); font-size:.63rem; letter-spacing:2px;
+  padding:10px 18px; background:none; border:none; color:var(--sub);
+  cursor:pointer; border-bottom:2px solid transparent; transition:all .15s;
+}
+.tab-btn:hover { color:var(--text); }
+.tab-btn.active { color:var(--accent); border-bottom-color:var(--accent); }
+
+/* ── TABLE ── */
+.table-wrap { flex:1; overflow:hidden; background:var(--panel); display:flex; flex-direction:column; }
+.table-header {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:7px 14px; border-bottom:1px solid var(--border); flex-shrink:0;
+}
+.section-title { font-family:var(--mono); font-size:.63rem; color:var(--accent); letter-spacing:2px; text-transform:uppercase; }
+.filter-row { display:flex; gap:5px; }
+.filter-btn {
+  font-family:var(--mono); font-size:.6rem; padding:3px 9px;
+  border-radius:2px; border:1px solid var(--border); background:transparent;
+  color:var(--sub); cursor:pointer; transition:all .15s;
+}
+.filter-btn.active,.filter-btn:hover { border-color:var(--accent); color:var(--accent); }
+.filter-btn.f-high.active   { border-color:var(--danger); color:var(--danger); }
+.filter-btn.f-medium.active { border-color:var(--warn);   color:var(--warn); }
+.filter-btn.f-low.active    { border-color:var(--ok);     color:var(--ok); }
+
+.tbl-scroll { flex:1; overflow-y:auto; }
+.tbl-scroll::-webkit-scrollbar { width:4px; }
+.tbl-scroll::-webkit-scrollbar-thumb { background:var(--border); }
+
+table { width:100%; border-collapse:collapse; }
+thead th {
+  position:sticky; top:0; background:var(--panel2);
+  font-family:var(--mono); font-size:.58rem; color:var(--sub);
+  letter-spacing:2px; text-transform:uppercase;
+  padding:7px 11px; text-align:left; border-bottom:1px solid var(--border);
+}
+tbody tr { border-bottom:1px solid rgba(26,37,64,.5); transition:background .1s; }
+tbody tr:hover { background:rgba(0,212,255,.025); }
+td { font-family:var(--mono); font-size:.68rem; padding:5px 11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:0; }
+td.log-col  { width:40%; max-width:300px; color:var(--text); }
+td.src-col  { width:10%; color:var(--sub); }
+td.scr-col  { width:7%;  color:var(--text); text-align:center; }
+td.lvl-col  { width:9%;  text-align:center; }
+td.lbl-col  { width:16%; }
+td.fb-col   { width:10%; text-align:center; }
+td.time-col { width:12%; color:var(--sub); }
+
+.badge { display:inline-block; font-size:.54rem; padding:2px 6px; border-radius:2px; letter-spacing:1.5px; font-weight:700; }
+.badge-high   { background:rgba(255,59,92,.15);  color:var(--danger); border:1px solid rgba(255,59,92,.3); }
+.badge-medium { background:rgba(255,149,0,.12);  color:var(--warn);   border:1px solid rgba(255,149,0,.3); }
+.badge-low    { background:rgba(0,230,118,.08);  color:var(--ok);     border:1px solid rgba(0,230,118,.25); }
+.badge-none   { background:transparent; color:#4a6080; border:1px solid rgba(74,96,128,.2); }
+
+/* Label select dropdown */
+.lbl-select {
+  font-family:var(--mono); font-size:.6rem;
+  background:var(--panel2); color:var(--sub);
+  border:1px solid var(--border); border-radius:2px;
+  padding:3px 6px; cursor:pointer; outline:none;
+  transition:all .15s; width:100%;
+}
+.lbl-select:hover,.lbl-select:focus { border-color:var(--accent); color:var(--text); }
+.lbl-select.tp { color:var(--ok);     border-color:rgba(0,230,118,.4); }
+.lbl-select.fp { color:var(--danger); border-color:rgba(255,59,92,.4); }
+.lbl-select.tn { color:var(--accent); border-color:rgba(0,212,255,.4); }
+.lbl-select.fn { color:var(--warn);   border-color:rgba(255,149,0,.4); }
+
+/* Feedback submit button per row */
+.fb-btn {
+  font-family:var(--mono); font-size:.56rem; padding:3px 8px;
+  border-radius:2px; border:1px solid var(--border);
+  background:transparent; color:var(--sub); cursor:pointer; transition:all .15s;
+}
+.fb-btn:hover { border-color:var(--purple); color:var(--purple); }
+.fb-btn.sent  { color:var(--ok); border-color:rgba(0,230,118,.3); cursor:default; }
+
+/* ── CHART ── */
+.chart-wrap {
+  height:150px; background:var(--panel); padding:8px 14px 5px;
+  flex-shrink:0; border-top:1px solid var(--border);
+}
+
+/* ── RIGHT PANEL ── */
+.right { width:280px; flex-shrink:0; background:var(--panel); display:flex; flex-direction:column; overflow:hidden; }
+.right-header {
+  padding:9px 13px; border-bottom:1px solid var(--border); flex-shrink:0;
+  display:flex; align-items:center; justify-content:space-between;
+}
+.alert-count { font-family:var(--mono); font-size:.6rem; color:var(--danger); border:1px solid rgba(255,59,92,.3); border-radius:2px; padding:1px 7px; }
+.alerts-scroll { flex:1; overflow-y:auto; padding:7px; }
+.alerts-scroll::-webkit-scrollbar { width:3px; }
+.alerts-scroll::-webkit-scrollbar-thumb { background:var(--border); }
+.alert-card {
+  background:rgba(255,59,92,.05); border:1px solid rgba(255,59,92,.2);
+  border-left:3px solid var(--danger); border-radius:2px;
+  padding:8px 10px; margin-bottom:6px; animation:slideIn .3s ease;
+}
+@keyframes slideIn { from{opacity:0;transform:translateX(8px);} }
+.alert-card.medium { background:rgba(255,149,0,.05); border-color:rgba(255,149,0,.2); border-left-color:var(--warn); }
+.alert-top { display:flex; justify-content:space-between; margin-bottom:4px; }
+.alert-src  { font-family:var(--mono); font-size:.58rem; color:var(--sub); }
+.alert-time { font-family:var(--mono); font-size:.56rem; color:var(--sub); }
+.alert-log  { font-family:var(--mono); font-size:.64rem; color:var(--text); line-height:1.5; word-break:break-all; }
+.alert-score { font-family:var(--mono); font-size:.58rem; color:var(--danger); margin-top:3px; }
+.alert-card.medium .alert-score { color:var(--warn); }
+
+/* ── COLLECTOR BAR ── */
+.collector-bar {
+  display:flex; align-items:center; gap:8px;
+  padding:7px 14px; background:var(--panel2);
+  border-top:1px solid var(--border); flex-shrink:0;
+}
+.collector-status { font-family:var(--mono); font-size:.63rem; color:var(--sub); flex:1; }
+.collector-status.running { color:var(--ok); }
+
+/* ── TOAST ── */
+.toast {
+  position:fixed; bottom:24px; left:50%; transform:translateX(-50%) translateY(20px);
+  background:var(--panel2); border:1px solid var(--border); border-radius:3px;
+  font-family:var(--mono); font-size:.75rem; padding:10px 20px;
+  color:var(--text); opacity:0; transition:all .3s; z-index:999; pointer-events:none;
+}
+.toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+.toast.ok   { border-color:rgba(0,230,118,.4); color:var(--ok); }
+.toast.err  { border-color:rgba(255,59,92,.4); color:var(--danger); }
+.toast.info { border-color:rgba(179,136,255,.4); color:var(--purple); }
+
+/* ── MODALS ── */
+.overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.72); backdrop-filter:blur(4px); z-index:100; align-items:center; justify-content:center; }
+.overlay.open { display:flex; }
+.modal { background:var(--panel); border:1px solid var(--border); border-radius:4px; width:480px; max-height:82vh; display:flex; flex-direction:column; box-shadow:0 0 60px rgba(0,0,0,.6); animation:fadeUp .25s ease; }
+@keyframes fadeUp { from{opacity:0;transform:translateY(14px);} }
+.modal-head { display:flex; align-items:center; justify-content:space-between; padding:14px 18px; border-bottom:1px solid var(--border); flex-shrink:0; }
+.modal-head h2 { font-size:.88rem; letter-spacing:2px; text-transform:uppercase; }
+.modal-close { background:none; border:none; color:var(--sub); font-size:1.1rem; cursor:pointer; transition:color .15s; }
+.modal-close:hover { color:var(--danger); }
+.modal-body { padding:18px; overflow-y:auto; flex:1; }
+.modal-foot { padding:12px 18px; border-top:1px solid var(--border); display:flex; justify-content:flex-end; gap:8px; flex-shrink:0; }
+
+.m-list { list-style:none; margin-bottom:10px; max-height:180px; overflow-y:auto; border:1px solid var(--border); border-radius:2px; }
+.m-list::-webkit-scrollbar { width:3px; }
+.m-list::-webkit-scrollbar-thumb { background:var(--border); }
+.m-list li { display:flex; align-items:center; justify-content:space-between; padding:7px 11px; font-family:var(--mono); font-size:.72rem; border-bottom:1px solid var(--border); }
+.m-list li:last-child { border-bottom:none; }
+.m-del { background:none; border:none; color:var(--sub); cursor:pointer; font-size:.8rem; transition:color .15s; }
+.m-del:hover { color:var(--danger); }
+.m-input-row { display:flex; gap:7px; margin-bottom:8px; }
+.m-input { flex:1; background:rgba(0,212,255,.03); border:1px solid var(--border); border-radius:2px; padding:7px 11px; color:var(--text); font-family:var(--mono); font-size:.78rem; outline:none; }
+.m-input:focus { border-color:var(--accent); }
+.m-input::placeholder { color:var(--sub); }
+
+/* Model retrain modal */
+.retrain-info { font-family:var(--mono); font-size:.72rem; color:var(--sub); line-height:1.8; margin-bottom:16px; }
+.retrain-info span { color:var(--text); }
+.retrain-progress { height:4px; background:var(--border); border-radius:2px; overflow:hidden; margin-top:12px; display:none; }
+.retrain-bar { height:100%; width:0%; background:linear-gradient(90deg,var(--accent2),var(--accent)); border-radius:2px; transition:width 3s ease; }
+
+::-webkit-scrollbar { width:4px; }
+::-webkit-scrollbar-track { background:transparent; }
+::-webkit-scrollbar-thumb { background:var(--border); }
+</style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<header class="topbar">
+  <div class="topbar-left">
+    <span style="font-size:1.25rem;filter:drop-shadow(0 0 8px var(--accent))">🛡</span>
+    <h1>Log <span>Sentinel</span> AI</h1>
+    <span class="badge-live">● LIVE</span>
+    <span class="backend-status" id="backend-status">⬤ BACKEND</span>
+  </div>
+  <div class="topbar-right">
+    <button class="btn-sm btn-theme" id="theme-btn" onclick="toggleTheme()" title="Toggle light/dark mode">🌙</button>
+    <button class="btn-sm btn-outline"  onclick="openTemplates()">🛠 Templates</button>
+    <button class="btn-sm btn-purple"   onclick="openRetrain()">🔁 Update Model</button>
+    <button class="btn-sm btn-warn"     onclick="submitAllFeedback()">📤 Submit Feedback</button>
+    <div class="divider"></div>
+    <button class="btn-sm btn-outline"  onclick="openAdmins()">👥 Admins</button>
+    <button class="btn-sm btn-danger"   onclick="location.href='/logout'">Logout</button>
+  </div>
+</header>
+
+<!-- STATS -->
+<div class="stats-row">
+  <div class="stat"><span class="stat-label">// Total Events</span><span class="stat-value c-total"  id="s-total">—</span></div>
+  <div class="stat"><span class="stat-label">// High Alerts</span><span class="stat-value c-high"   id="s-high">—</span></div>
+  <div class="stat"><span class="stat-label">// Medium</span><span class="stat-value c-medium" id="s-medium">—</span></div>
+  <div class="stat"><span class="stat-label">// Low / Normal</span><span class="stat-value c-low"    id="s-low">—</span></div>
+  <div class="stat"><span class="stat-label">// Model Accuracy</span><span class="stat-value c-acc"    id="s-acc">—</span></div>
+</div>
+
+<!-- MAIN -->
+<div class="main">
+  <div class="left">
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <button class="tab-btn active" onclick="switchTab('alerts',this)">// ALERTS</button>
+      <button class="tab-btn"        onclick="switchTab('events',this)">// RAW EVENTS</button>
+    </div>
+
+    <!-- Table -->
+    <div class="table-wrap">
+      <div class="table-header">
+        <span class="section-title" id="tab-title">// Alert Feed</span>
+        <div class="filter-row">
+          <button class="filter-btn active"   onclick="setFilter('ALL',this)">ALL</button>
+          <button class="filter-btn f-high"   onclick="setFilter('HIGH',this)">HIGH</button>
+          <button class="filter-btn f-medium" onclick="setFilter('MEDIUM',this)">MED</button>
+          <button class="filter-btn f-low"    onclick="setFilter('LOW',this)">LOW</button>
+        </div>
+      </div>
+      <div class="tbl-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th class="log-col">Description</th>
+              <th class="src-col">Source</th>
+              <th class="scr-col">Score</th>
+              <th class="lvl-col">Level</th>
+              <th class="lbl-col">Label</th>
+              <th class="fb-col">Feedback</th>
+              <th class="time-col">Time</th>
+            </tr>
+          </thead>
+          <tbody id="log-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Chart -->
+    <div class="chart-wrap"><canvas id="scoreChart"></canvas></div>
+
+    <!-- Collector -->
+    <div class="collector-bar">
+      <span class="collector-status" id="collector-status">⬤ Collector: unknown</span>
+      <button class="btn-sm btn-ok"     onclick="collectorAction('start')">▶ Start</button>
+      <button class="btn-sm btn-danger" onclick="collectorAction('stop')">■ Stop</button>
+    </div>
+  </div>
+
+  <!-- Right: live alerts -->
+  <div class="right">
+    <div class="right-header">
+      <span class="section-title">// Live Alerts</span>
+      <span class="alert-count" id="alert-count">0</span>
+    </div>
+    <div class="alerts-scroll" id="alerts-panel"></div>
+  </div>
+</div>
+
+
+<!-- ══ TEMPLATES MODAL ══ -->
+<div class="overlay" id="tmpl-overlay">
+  <div class="modal">
+    <div class="modal-head">
+      <h2>🛠 Threat Templates</h2>
+      <button class="modal-close" onclick="closeModal('tmpl-overlay')">✕</button>
+    </div>
+    <div class="modal-body">
+      <ul class="m-list" id="tmpl-list"></ul>
+      <div class="m-input-row">
+        <input class="m-input" id="tmpl-input" placeholder="New keyword / phrase…"/>
+        <button class="btn-sm btn-accent" onclick="addTemplate()">Add</button>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn-sm btn-outline" onclick="closeModal('tmpl-overlay')">Cancel</button>
+      <button class="btn-sm btn-accent"  onclick="saveTemplates()">💾 Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ UPDATE MODEL MODAL ══ -->
+<div class="overlay" id="retrain-overlay">
+  <div class="modal">
+    <div class="modal-head">
+      <h2>🔁 Update Model</h2>
+      <button class="modal-close" onclick="closeModal('retrain-overlay')">✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="retrain-info">
+        This will trigger the ML backend to retrain the anomaly detection model
+        using all collected feedback labels.<br><br>
+        ⚠ &nbsp;Make sure you have submitted feedback before retraining.<br><br>
+        Pending labeled alerts: <span id="retrain-count">—</span><br>
+        Current accuracy: <span id="retrain-acc">—</span>
+      </p>
+      <div class="retrain-progress" id="retrain-progress">
+        <div class="retrain-bar" id="retrain-bar"></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn-sm btn-outline" onclick="closeModal('retrain-overlay')">Cancel</button>
+      <button class="btn-sm btn-purple"  onclick="triggerRetrain()" id="retrain-btn">🔁 Start Retraining</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ ADMINS MODAL ══ -->
+<div class="overlay" id="adm-overlay">
+  <div class="modal">
+    <div class="modal-head">
+      <h2>👥 Admin Accounts</h2>
+      <button class="modal-close" onclick="closeModal('adm-overlay')">✕</button>
+    </div>
+    <div class="modal-body">
+      <ul class="m-list" id="adm-list"></ul>
+      <div class="m-input-row">
+        <input class="m-input" id="adm-user" placeholder="Username"/>
+        <input class="m-input" id="adm-pass" placeholder="Password" type="password"/>
+        <button class="btn-sm btn-accent" onclick="addAdmin()">Add</button>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn-sm btn-outline" onclick="closeModal('adm-overlay')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+let allRows       = [];
+let allAlerts     = [];
+let pendingFeedback = {};   // { block_id: label } — collected but not submitted
+let currentFilter = 'ALL';
+let currentTab    = 'alerts';
+const REFRESH_MS  = 5000;
+let renderedAlertIds = new Set();
+
+// Label options
+const LABEL_OPTIONS = [
+  { value:'',               text:'— select —' },
+  { value:'true_positive',  text:'✅ true_positive'  },
+  { value:'false_positive', text:'❌ false_positive' },
+  { value:'true_negative',  text:'✔ true_negative'  },
+  { value:'false_negative', text:'⚠ false_negative' },
+];
+
+// ── Toast ──────────────────────────────────────────────────────────────────
+function toast(msg, type='ok', ms=3000) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className   = `toast show ${type}`;
+  clearTimeout(el._t);
+  el._t = setTimeout(()=> el.className='toast', ms);
+}
+
+// ── Chart ──────────────────────────────────────────────────────────────────
+const ctx = document.getElementById('scoreChart').getContext('2d');
+const chart = new Chart(ctx, {
+  type:'line',
+  data:{ labels:[], datasets:[{
+    data:[], borderColor:'#00d4ff', borderWidth:1.5,
+    pointRadius:3, pointBackgroundColor:[],
+    tension:0.3, fill:true, backgroundColor:'rgba(0,212,255,0.04)'
+  }]},
+  options:{
+    responsive:true, maintainAspectRatio:false, animation:false,
+    plugins:{ legend:{display:false} },
+    scales:{
+      x:{display:false},
+      y:{ min:-0.2, max:0.4,
+        ticks:{color:'#4a6080',font:{family:'Share Tech Mono',size:9},stepSize:.2},
+        grid:{color:'rgba(26,37,64,.5)'}
+      }
+    }
+  }
+});
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+const lvlColor = l => l==='HIGH'?'#ff3b5c':l==='MEDIUM'?'#ff9500':l==='LOW'?'#00e676':'#4a6080';
+const lvlBadge = l => l
+  ? `<span class="badge badge-${l.toLowerCase()}">${l}</span>`
+  : `<span class="badge badge-none">—</span>`;
+
+function labelClass(v) {
+  return v==='true_positive'?'tp':v==='false_positive'?'fp':v==='true_negative'?'tn':v==='false_negative'?'fn':'';
+}
+
+function setFilter(level, btn) {
+  currentFilter = level;
+  document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  renderTable();
+}
+
+function switchTab(tab, btn) {
+  currentTab = tab;
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('tab-title').textContent = tab==='alerts'?'// Alert Feed':'// Raw Events';
+  refresh();
+}
+
+// ── Normalise backend data ────────────────────────────────────────────────
+function normalise(raw) {
+  if (!Array.isArray(raw)) raw = raw.alerts||raw.events||raw.data||[];
+  return raw.map(r=>{
+    const hasScore = r.anomaly_score !== undefined;
+    const rawScore = hasScore ? r.anomaly_score : (r.score !== undefined ? r.score : null);
+    // Higher displayed score = more anomalous. Raw events without a score show '—'.
+    // Windows model scores ~0.04–0.33; map so score=0.10 → ~1.0, score=0.33 → ~0.0
+    const dispScore = rawScore !== null
+      ? (rawScore >= 0
+          ? Math.max(0, Math.min(1, (0.15 - rawScore) / 0.15))   // Windows model (positive scores)
+          : Math.max(0, Math.min(1, -rawScore * 10)))              // HDFS model (negative scores)
+      : null;
+    const logText = (r.threat_categories && r.threat_categories.length)
+      ? r.threat_categories.join(', ')
+      : (r.description||r.message||r.log||r.event||r.raw||JSON.stringify(r));
+    // Raw events (no priority or anomaly_score) show '—' for level — they haven't been scored
+    const level = r.priority || r.level || r.severity || (hasScore ? 'LOW' : null);
+    return {
+      id:       r.block_id||r.id||'',
+      log:      logText,
+      source:   r.source||r.host||'backend',
+      score:    dispScore !== null ? dispScore.toFixed(3) : '—',
+      rawScore: rawScore !== null ? rawScore : 0,
+      level:    level,
+      label:    r.label||'',
+      time:     r.alert_at||r.collected_at||r.timestamp||r.time||'',
+      threats:  r.threat_categories||[],
+      events:   r.num_events||0,
+    };
+  });
+}
+
+// ── Build label select for a row ─────────────────────────────────────────
+function buildLabelSelect(row) {
+  if (!row.id) return '—';
+  // Check if we already have a pending selection
+  const pending = pendingFeedback[row.id] || row.label || '';
+  const cls = labelClass(pending);
+  const opts = LABEL_OPTIONS.map(o=>
+    `<option value="${o.value}" ${o.value===pending?'selected':''}>${o.text}</option>`
+  ).join('');
+  return `<select class="lbl-select ${cls}" data-id="${row.id}"
+            onchange="onLabelChange(this)">${opts}</select>`;
+}
+
+// ── Build feedback button for a row ──────────────────────────────────────
+function buildFeedbackBtn(row) {
+  if (!row.id) return '—';
+  const alreadySent = row.label && !pendingFeedback[row.id];
+  return `<button class="fb-btn ${alreadySent?'sent':''}"
+            data-id="${row.id}"
+            onclick="submitSingleFeedback(this)"
+            ${alreadySent?'disabled':''}>
+            ${alreadySent?'✓ sent':'submit'}
+          </button>`;
+}
+
+// ── When admin changes a label dropdown ──────────────────────────────────
+function onLabelChange(sel) {
+  const id  = sel.dataset.id;
+  const val = sel.value;
+  // Update class for colour coding
+  sel.className = `lbl-select ${labelClass(val)}`;
+  if (val) {
+    pendingFeedback[id] = val;
+    // Re-enable the feedback button for this row
+    const fbBtn = document.querySelector(`.fb-btn[data-id="${id}"]`);
+    if (fbBtn) { fbBtn.disabled=false; fbBtn.classList.remove('sent'); fbBtn.textContent='submit'; }
+  } else {
+    delete pendingFeedback[id];
+  }
+}
+
+// ── Submit feedback for a single alert ───────────────────────────────────
+async function submitSingleFeedback(btn) {
+  const id    = btn.dataset.id;
+  const label = pendingFeedback[id];
+  if (!label) { toast('Select a label first.','err'); return; }
+  btn.textContent = '…';
+  btn.disabled    = true;
+  const res = await fetch(`/proxy/alerts/${id}/label`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ label })
+  });
+  if (res.ok) {
+    btn.textContent = '✓ sent';
+    btn.classList.add('sent');
+    delete pendingFeedback[id];
+    toast(`Feedback submitted: ${label}`,'ok');
+  } else {
+    btn.textContent = 'submit';
+    btn.disabled    = false;
+    toast('Failed to submit feedback.','err');
+  }
+}
+
+// ── Submit ALL pending feedback at once ───────────────────────────────────
+async function submitAllFeedback() {
+  const entries = Object.entries(pendingFeedback);
+  if (!entries.length) { toast('No pending feedback to submit.','info'); return; }
+  toast(`Submitting ${entries.length} feedback entries…`,'info',5000);
+  let ok=0, fail=0;
+  for (const [id, label] of entries) {
+    const res = await fetch(`/proxy/alerts/${id}/label`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ label })
+    });
+    if (res.ok) { ok++; delete pendingFeedback[id]; }
+    else fail++;
+  }
+  toast(`✓ ${ok} submitted${fail?`, ${fail} failed`:''}`, ok&&!fail?'ok':'err');
+  await refresh();
+}
+
+// ── Render table ──────────────────────────────────────────────────────────
+function renderTable() {
+  const tbody = document.getElementById('log-body');
+  tbody.innerHTML = '';
+  const rows = currentFilter==='ALL'?allRows:allRows.filter(r=>r.level===currentFilter);
+  rows.forEach(r=>{
+    const tr = document.createElement('tr');
+    const isAlerts = currentTab==='alerts';
+    tr.innerHTML=`
+      <td class="log-col" title="${r.log}">${r.log}</td>
+      <td class="src-col">${r.source}</td>
+      <td class="scr-col">${r.score}</td>
+      <td class="lvl-col">${lvlBadge(r.level)}</td>
+      <td class="lbl-col">${isAlerts?buildLabelSelect(r):'—'}</td>
+      <td class="fb-col">${isAlerts?buildFeedbackBtn(r):'—'}</td>
+      <td class="time-col">${(r.time||'').split('T').pop().split('.')[0]}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+// ── Side alerts ───────────────────────────────────────────────────────────
+function renderSideAlerts() {
+  const panel = document.getElementById('alerts-panel');
+  const alerts = allAlerts.filter(r=>r.level==='HIGH'||r.level==='MEDIUM'||r.level==='LOW').slice(0, 200);
+  document.getElementById('alert-count').textContent = alerts.length;
+  // Only prepend alerts we haven't rendered yet — avoids flash on every refresh
+  const newAlerts = alerts.filter(r => {
+    const id = r.id || r.log;
+    if (renderedAlertIds.has(id)) return false;
+    renderedAlertIds.add(id);
+    return true;
+  });
+  newAlerts.forEach(r=>{
+    const div=document.createElement('div');
+    div.className=`alert-card ${r.level==='MEDIUM'?'medium':r.level==='LOW'?'low':''}`;
+    div.innerHTML=`
+      <div class="alert-top">
+        <span class="alert-src">${r.source}</span>
+        <span class="alert-time">${(r.time||'').split('T').pop().split('.')[0]}</span>
+      </div>
+      <div class="alert-log">${r.log}</div>
+      <div class="alert-score">score: ${r.score}</div>`;
+    panel.insertBefore(div, panel.firstChild);
+  });
+}
+
+// ── Chart ─────────────────────────────────────────────────────────────────
+function updateChart() {
+  const recent = allRows.slice(0,60).reverse();
+  chart.data.labels = recent.map(r=>r.time);
+  chart.data.datasets[0].data = recent.map(r=>r.rawScore);
+  chart.data.datasets[0].pointBackgroundColor = recent.map(r=>lvlColor(r.level));
+  chart.update('none');
+}
+
+// ── Stats ─────────────────────────────────────────────────────────────────
+function updateStats(status, metrics) {
+  if (status&&!status.error) {
+    document.getElementById('s-total').textContent  = status.total_events??status.total??allRows.length;
+    document.getElementById('s-high').textContent   = status.high_alerts??status.high??allRows.filter(r=>r.level==='HIGH').length;
+    document.getElementById('s-medium').textContent = status.medium_alerts??status.medium??allRows.filter(r=>r.level==='MEDIUM').length;
+    document.getElementById('s-low').textContent    = status.low_alerts??status.low??allRows.filter(r=>r.level==='LOW').length;
+  }
+  if (metrics&&!metrics.error) {
+    // Backend returns evaluation_report: { metrics: { accuracy: 0.961, ... } }
+    const acc = metrics.metrics?.accuracy ?? metrics.accuracy ?? metrics.model_accuracy;
+    document.getElementById('s-acc').textContent = acc!==undefined?(acc*100).toFixed(1)+'%':'—';
+  }
+}
+
+function setBackendStatus(online) {
+  const el=document.getElementById('backend-status');
+  el.textContent = online?'⬤ BACKEND ONLINE':'⬤ BACKEND OFFLINE';
+  el.className   = 'backend-status '+(online?'online':'offline');
+}
+
+// ── Main refresh ──────────────────────────────────────────────────────────
+async function refresh() {
+  const endpoint = currentTab==='alerts'?'/proxy/alerts?limit=500':'/proxy/events?limit=500';
+  try {
+    const [rowsRes,alertsRes,statusRes,metricsRes] = await Promise.all([
+      fetch(endpoint), fetch('/proxy/alerts?limit=500'), fetch('/proxy/status'), fetch('/proxy/metrics')
+    ]);
+    setBackendStatus(rowsRes.ok);
+    const rawRows    = await rowsRes.json();
+    const rawAlerts  = alertsRes.ok ? await alertsRes.json() : rawRows;
+    const statusD    = statusRes.ok  ? await statusRes.json()  : {};
+    const metricsD   = metricsRes.ok ? await metricsRes.json() : {};
+    allRows = normalise(rawRows);
+    allAlerts = normalise(rawAlerts);
+    renderTable(); renderSideAlerts(); updateChart(); updateStats(statusD,metricsD);
+  } catch(e) { setBackendStatus(false); }
+}
+
+// ── Theme toggle ──────────────────────────────────────────────────────────
+function toggleTheme() {
+  const isLight = document.body.classList.toggle('light');
+  const btn = document.getElementById('theme-btn');
+  btn.textContent = isLight ? '🌑' : '🌙';
+  btn.title = isLight ? 'Switch to dark mode' : 'Switch to light mode';
+  localStorage.setItem('lsa-theme', isLight ? 'light' : 'dark');
+  // Update chart colors
+  updateChartTheme(isLight);
+}
+
+function updateChartTheme(isLight) {
+  const gridColor  = isLight ? 'rgba(0,0,0,0.06)' : 'rgba(26,37,64,.5)';
+  const tickColor  = isLight ? '#6b7fa0' : '#4a6080';
+  const lineColor  = isLight ? '#0066cc' : '#00d4ff';
+  const fillColor  = isLight ? 'rgba(0,102,204,0.06)' : 'rgba(0,212,255,0.04)';
+  chart.data.datasets[0].borderColor       = lineColor;
+  chart.data.datasets[0].backgroundColor   = fillColor;
+  chart.options.scales.y.grid.color        = gridColor;
+  chart.options.scales.y.ticks.color       = tickColor;
+  chart.update('none');
+}
+
+// Restore saved theme on load
+(function() {
+  const saved = localStorage.getItem('lsa-theme');
+  if (saved === 'light') {
+    document.body.classList.add('light');
+    document.getElementById('theme-btn').textContent = '🌑';
+    updateChartTheme(true);
+  }
+})();
+
+refresh();
+setInterval(refresh, REFRESH_MS);
+
+// ── Collector ─────────────────────────────────────────────────────────────
+async function collectorAction(action) {
+  await fetch(`/proxy/collector/${action}`,{method:'POST'});
+  const el = document.getElementById('collector-status');
+  if (action==='start') { el.textContent='⬤ Collector: RUNNING'; el.className='collector-status running'; }
+  else                  { el.textContent='⬤ Collector: STOPPED'; el.className='collector-status'; }
+}
+
+// ── Update Model modal ────────────────────────────────────────────────────
+async function openRetrain() {
+  document.getElementById('retrain-overlay').classList.add('open');
+  document.getElementById('retrain-count').textContent = Object.keys(pendingFeedback).length + ' pending';
+  document.getElementById('retrain-acc').textContent   = document.getElementById('s-acc').textContent;
+  document.getElementById('retrain-progress').style.display='none';
+  document.getElementById('retrain-bar').style.width='0%';
+  const btn=document.getElementById('retrain-btn');
+  btn.disabled=false; btn.textContent='🔁 Start Retraining';
+}
+
+async function triggerRetrain() {
+  const btn  = document.getElementById('retrain-btn');
+  const prog = document.getElementById('retrain-progress');
+  const bar  = document.getElementById('retrain-bar');
+  btn.disabled = true; btn.textContent = 'Starting…';
+  prog.style.display = 'block';
+  setTimeout(() => bar.style.width = '20%', 100);
+  const res = await fetch('/proxy/model/retrain', { method: 'POST' });
+  if (!res.ok) {
+    toast('Failed to start retraining. Check backend.', 'err');
+    btn.disabled = false; btn.textContent = '🔁 Start Retraining';
+    bar.style.width = '0%'; return;
+  }
+  btn.textContent = 'Training…';
+  bar.style.width = '40%';
+  // Poll every 2s until completed or failed
+  const poll = setInterval(async () => {
+    try {
+      const st  = await fetch('/proxy/model/retrain/status');
+      const data = await st.json();
+      if (data.status === 'completed') {
+        clearInterval(poll);
+        bar.style.width = '100%';
+        toast('✓ Model retrained successfully!', 'ok', 4000);
+        btn.textContent = '✓ Done';
+        setTimeout(() => { closeModal('retrain-overlay'); refresh(); }, 1500);
+      } else if (data.status === 'failed') {
+        clearInterval(poll);
+        bar.style.width = '0%';
+        toast('Retrain failed: ' + (data.error || 'unknown error'), 'err', 5000);
+        btn.disabled = false; btn.textContent = '🔁 Start Retraining';
+      } else {
+        // Still running — nudge the bar forward
+        const w = Math.min(90, parseInt(bar.style.width || '40') + 5);
+        bar.style.width = w + '%';
+      }
+    } catch(e) {
+      clearInterval(poll);
+      toast('Lost connection during retraining.', 'err');
+      btn.disabled = false; btn.textContent = '🔁 Start Retraining';
+    }
+  }, 2000);
+}
+
+// ── Templates ─────────────────────────────────────────────────────────────
+async function openTemplates() {
+  document.getElementById('tmpl-overlay').classList.add('open');
+  let list = [];
+  try {
+    const r1 = await fetch('/proxy/templates');
+    if (r1.ok) {
+      const d = await r1.json();
+      if (Array.isArray(d)) {
+        list = d;
+      } else if (d.templates && typeof d.templates === 'object') {
+        // Backend returns { brute_force: [...], privilege_esc: [...], ... }
+        // Flatten into labelled strings: "[brute_force] failed login"
+        list = Object.entries(d.templates).flatMap(([cat, kws]) =>
+          kws.map(kw => '[' + cat + '] ' + kw)
+        );
+      }
+    }
+  } catch(e) {}
+  if (!list.length) {
+    const r2 = await fetch('/api/templates');
+    if (r2.ok) list = await r2.json();
+  }
+  const ul = document.getElementById('tmpl-list');
+  ul.innerHTML = '';
+  list.forEach(t => addTmplItem(t));
+}
+function addTmplItem(t) {
+  const li=document.createElement('li'); li.dataset.val=t;
+  li.innerHTML=`<span>${t}</span><button class="m-del" onclick="this.closest('li').remove()">✕</button>`;
+  document.getElementById('tmpl-list').appendChild(li);
+}
+function addTemplate() {
+  const inp=document.getElementById('tmpl-input');
+  if(inp.value.trim()){ addTmplItem(inp.value.trim()); inp.value=''; }
+}
+async function saveTemplates() {
+  const items=[...document.querySelectorAll('#tmpl-list li')].map(li=>li.dataset.val);
+  await fetch('/api/templates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(items)});
+  closeModal('tmpl-overlay');
+  toast('Templates saved.','ok');
+}
+
+// ── Admins ─────────────────────────────────────────────────────────────────
+async function openAdmins() {
+  document.getElementById('adm-overlay').classList.add('open');
+  const res=await fetch('/api/admins'); const users=await res.json();
+  const ul=document.getElementById('adm-list'); ul.innerHTML='';
+  users.forEach(u=>addAdmItem(u));
+}
+function addAdmItem(u) {
+  const li=document.createElement('li'); li.dataset.user=u;
+  li.innerHTML=`<span>${u}</span><button class="m-del" onclick="deleteAdmin('${u}',this)">✕</button>`;
+  document.getElementById('adm-list').appendChild(li);
+}
+async function addAdmin() {
+  const u=document.getElementById('adm-user').value.trim();
+  const p=document.getElementById('adm-pass').value;
+  if(!u||!p) return;
+  const res=await fetch('/api/admins',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u,password:p})});
+  if(res.ok){ addAdmItem(u); document.getElementById('adm-user').value=''; document.getElementById('adm-pass').value=''; toast(`Admin "${u}" added.`,'ok'); }
+  else{ const d=await res.json(); toast(d.error,'err'); }
+}
+async function deleteAdmin(username,btn) {
+  if(!confirm(`Delete admin "${username}"?`)) return;
+  const res=await fetch(`/api/admins/${username}`,{method:'DELETE'});
+  if(res.ok){ btn.closest('li').remove(); toast(`Admin "${username}" deleted.`,'ok'); }
+}
+
+function closeModal(id){ document.getElementById(id).classList.remove('open'); }
+document.querySelectorAll('.overlay').forEach(o=>{
+  o.addEventListener('click',e=>{ if(e.target===o) o.classList.remove('open'); });
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,36 @@
+# ── Secrets ───────────────────────────────────────────────────────────────────
+.env
+
+# ── Large raw data (HDFS logs, too big for Git) ───────────────────────────────
+data/raw/
+data/staging/events.jsonl
+data/staging/alerts.jsonl
+data/staging/alerts.jsonl.bak
+data/staging/retrain_log.jsonl
+data/staging/collector_cursor.json
+data/parsed/
+data/features/
+src/ingest/data/
+
+# ── Credentials ───────────────────────────────────────────────────────────────
+frontend/admins.txt
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+
+# ── OS ────────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db

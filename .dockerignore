@@ -1,0 +1,42 @@
+# ── .dockerignore — Log Sentinel AI ───────────────────────────────────────────
+# Excludes files from the Docker build context to keep images small and fast
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+env/
+frontend/.venv/
+
+# Test cache
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Git
+.git/
+.gitignore
+
+# Large data files — mounted as volumes at runtime instead
+data/raw/hdfs/HDFS_1.log
+data/raw/hdfs/HDFS_sample.log
+data/raw/hdfs/*.gz
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

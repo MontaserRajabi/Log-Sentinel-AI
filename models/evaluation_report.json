@@ -1,0 +1,112 @@
+{
+  "evaluated_at": "2026-03-29T11:16:13",
+  "features_file": "data/features/block_features.parquet",
+  "model_file": "models/isoforest.pkl",
+  "n_features": 22,
+  "feature_columns": [
+    "num_events",
+    "unique_templates",
+    "avg_msg_len",
+    "std_msg_len",
+    "max_msg_len",
+    "min_msg_len",
+    "error_count",
+    "warn_count",
+    "info_count",
+    "error_ratio",
+    "warn_ratio",
+    "template_entropy",
+    "top_template_ratio",
+    "block_duration_sec",
+    "events_per_sec",
+    "gap_count",
+    "brute_force_hits",
+    "privilege_esc_hits",
+    "dos_hits",
+    "log_tamper_hits",
+    "startup_hits",
+    "network_hits"
+  ],
+  "n_blocks": 31026,
+  "metrics": {
+    "threshold": null,
+    "true_positives": 29539,
+    "true_negatives": 278,
+    "false_positives": 1180,
+    "false_negatives": 29,
+    "accuracy": 0.961,
+    "precision_anomaly": 0.9055,
+    "recall_anomaly": 0.1907,
+    "f1_anomaly": 0.315,
+    "precision_normal": 0.9616,
+    "recall_normal": 0.999,
+    "f1_normal": 0.9799,
+    "roc_auc": 0.7158,
+    "avg_precision": 0.4514,
+    "classification_report": {
+      "Anomaly": {
+        "precision": 0.9055374592833876,
+        "recall": 0.1906721536351166,
+        "f1-score": 0.31501416430594903,
+        "support": 1458.0
+      },
+      "Normal": {
+        "precision": 0.9615872912529705,
+        "recall": 0.99901920995671,
+        "f1-score": 0.9799459253238675,
+        "support": 29568.0
+      },
+      "accuracy": 0.9610326822664862,
+      "macro avg": {
+        "precision": 0.933562375268179,
+        "recall": 0.5948456817959134,
+        "f1-score": 0.6474800448149083,
+        "support": 31026.0
+      },
+      "weighted avg": {
+        "precision": 0.9589533502031524,
+        "recall": 0.9610326822664862,
+        "f1-score": 0.9486988903350154,
+        "support": 31026.0
+      }
+    }
+  },
+  "threat_analysis": {
+    "brute_force": {
+      "blocks_with_hits": 2,
+      "true_anomaly_hits": 2,
+      "correctly_detected": 0,
+      "detection_rate_pct": 0.0
+    },
+    "privilege_esc": {
+      "blocks_with_hits": 31016,
+      "true_anomaly_hits": 1456,
+      "correctly_detected": 276,
+      "detection_rate_pct": 19.0
+    },
+    "dos": {
+      "blocks_with_hits": 4,
+      "true_anomaly_hits": 4,
+      "correctly_detected": 2,
+      "detection_rate_pct": 50.0
+    },
+    "log_tamper": {
+      "blocks_with_hits": 0,
+      "true_anomaly_hits": 0,
+      "correctly_detected": 0,
+      "detection_rate_pct": null
+    },
+    "startup": {
+      "blocks_with_hits": 0,
+      "true_anomaly_hits": 0,
+      "correctly_detected": 0,
+      "detection_rate_pct": null
+    },
+    "network": {
+      "blocks_with_hits": 2,
+      "true_anomaly_hits": 2,
+      "correctly_detected": 2,
+      "detection_rate_pct": 100.0
+    }
+  }
+}
