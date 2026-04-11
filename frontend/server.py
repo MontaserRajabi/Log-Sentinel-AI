@@ -32,9 +32,14 @@ TIMEOUT     = 10
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _get_backend_url():
+    """Return the backend URL for the current user session."""
+    return session.get("backend_url", BACKEND_URL).rstrip("/")
+
 def _backend(path: str, method="GET", **kwargs):
     """Forward a request to the ML backend. Returns (data, status_code)."""
-    url = BACKEND_URL.rstrip("/") + path
+    base = _get_backend_url()
+    url  = base + path
     try:
         resp = req.request(method, url, timeout=TIMEOUT, **kwargs)
         try:
@@ -43,7 +48,7 @@ def _backend(path: str, method="GET", **kwargs):
             data = {"raw": resp.text}
         return data, resp.status_code
     except req.ConnectionError:
-        return {"error": f"Cannot reach backend at {BACKEND_URL}"}, 502
+        return {"error": f"Cannot reach backend at {base}"}, 502
     except req.Timeout:
         return {"error": "Backend request timed out"}, 504
     except Exception as e:
@@ -66,20 +71,27 @@ def login_required(f):
 @app.route("/")
 @login_required
 def dashboard():
-    return render_template("dashboard.html", backend_url=BACKEND_URL)
+    return render_template("dashboard.html", backend_url=_get_backend_url())
 
 
 @app.route("/login", methods=["GET", "POST"])
 def login_page():
     error = ""
     if request.method == "POST":
-        username = request.form.get("username", "").strip()
-        password = request.form.get("password", "")
-        if check_admin(username, password):
-            session["admin"] = username
+        username    = request.form.get("username", "").strip()
+        password    = request.form.get("password", "")
+        backend_url = request.form.get("backend_url", "").strip() or BACKEND_URL
+
+        # Basic validation — must start with http
+        if not backend_url.startswith("http"):
+            error = "Backend URL must start with http:// or https://"
+        elif check_admin(username, password):
+            session["admin"]       = username
+            session["backend_url"] = backend_url.rstrip("/")
             return redirect(url_for("dashboard"))
-        error = "Invalid username or password."
-    return render_template("login.html", error=error)
+        else:
+            error = "Invalid username or password."
+    return render_template("login.html", error=error, default_backend=BACKEND_URL)
 
 
 @app.route("/logout")
