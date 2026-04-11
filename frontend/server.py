@@ -1,7 +1,3 @@
-import sys
-print("=== SERVER.PY LOADING ===", flush=True)
-sys.stdout.flush()
-
 """
 server.py  —  Log Sentinel AI  |  Frontend Flask Server
 Serves the web dashboard and proxies requests to the ML backend.
