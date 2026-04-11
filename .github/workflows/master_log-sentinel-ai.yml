@@ -15,11 +15,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Upload frontend source files
+      - name: Zip frontend source files
+        run: |
+          cd frontend
+          zip -r ../app.zip .
+
+      - name: Upload deployment zip
         uses: actions/upload-artifact@v4
         with:
           name: python-app
-          path: frontend/
+          path: app.zip
 
   deploy:
     runs-on: ubuntu-latest
@@ -46,3 +51,4 @@ jobs:
         with:
           app-name: 'Log-Sentinel-Ai'
           slot-name: 'Production'
+          package: app.zip
