@@ -39,9 +39,6 @@ jobs:
         with:
           name: python-app
 
-      - name: Wait for SCM container to stabilize
-        run: sleep 30
-
       - name: Login to Azure
         uses: azure/login@v2
         with:
@@ -49,9 +46,24 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_1F59533F6EB247FCBBCC995174C841C2 }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_64CDF56992DD40C695AE0C75AB75E7A4 }}
 
-      - name: Deploy to Azure Web App
-        uses: azure/webapps-deploy@v3
-        with:
-          app-name: 'Log-Sentinel-Ai'
-          slot-name: 'Production'
-          package: app.zip
+      - name: Get resource group
+        id: rg
+        run: |
+          RG=$(az webapp list --query "[?name=='Log-Sentinel-Ai'].resourceGroup" -o tsv)
+          echo "name=$RG" >> $GITHUB_OUTPUT
+
+      - name: Stop web app (prevent SCM restart during build)
+        run: az webapp stop --name Log-Sentinel-Ai --resource-group ${{ steps.rg.outputs.name }}
+
+      - name: Deploy zip via Azure CLI
+        run: |
+          az webapp deploy \
+            --name Log-Sentinel-Ai \
+            --resource-group ${{ steps.rg.outputs.name }} \
+            --src-path app.zip \
+            --type zip \
+            --async false
+
+      - name: Start web app
+        if: always()
+        run: az webapp start --name Log-Sentinel-Ai --resource-group ${{ steps.rg.outputs.name }}
