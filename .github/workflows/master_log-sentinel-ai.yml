@@ -23,17 +23,13 @@ jobs:
       - name: Install dependencies
         run: |
           cd frontend
-          python -m venv antenv
-          source antenv/bin/activate
-          pip install -r requirements.txt
+          pip install -r requirements.txt --target=".python_packages/lib/site-packages"
 
       - name: Upload artifact for deployment
         uses: actions/upload-artifact@v4
         with:
           name: python-app
-          path: |
-            frontend/
-            !frontend/antenv/
+          path: frontend/
 
   deploy:
     runs-on: ubuntu-latest
