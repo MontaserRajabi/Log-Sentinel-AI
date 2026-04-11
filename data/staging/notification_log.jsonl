@@ -128,3 +128,5 @@
 {"notified_at": "2026-04-07T11:04:31", "block_id": "test_log_tamper_20260407_1104_3320", "priority": "HIGH", "threat_categories": ["priority", "log_tamper"], "anomaly_score": 0.09, "channels_used": ["desktop", "sound"]}
 {"notified_at": "2026-04-07T11:04:58", "block_id": "test_privilege_esc_20260407_1104_2781", "priority": "HIGH", "threat_categories": ["priority", "privilege_esc"], "anomaly_score": 0.09, "channels_used": ["desktop", "sound"]}
 {"notified_at": "2026-04-07T11:12:18", "block_id": "test_privilege_esc_20260407_1111_3243", "priority": "HIGH", "threat_categories": ["priority", "privilege_esc"], "anomaly_score": 0.09, "channels_used": ["desktop", "sound"]}
+{"notified_at": "2026-04-11T15:46:26", "block_id": "win_System_20260407_1816_general", "priority": "MEDIUM", "threat_categories": ["brute_force", "startup", "network"], "anomaly_score": 0.071088, "channels_used": ["desktop", "sound"]}
+{"notified_at": "2026-04-11T15:54:26", "block_id": "test_log_tamper_20260411_1554_4991", "priority": "HIGH", "threat_categories": ["priority", "log_tamper"], "anomaly_score": 0.09, "channels_used": ["desktop", "sound"]}

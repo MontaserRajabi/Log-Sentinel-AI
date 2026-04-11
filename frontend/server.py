@@ -8,16 +8,26 @@ Run:
 Set BACKEND_URL to your teammate's backend IP:port.
 """
 
+import traceback
+import logging
+logging.basicConfig(level=logging.INFO)
+
 from flask import Flask, request, jsonify, render_template, session, redirect, url_for
 from functools import wraps
 import requests as req
 import os
 
-from models.admin_manager import (
-    check_admin, load_admins, add_admin,
-    delete_admin, ensure_default_admin
-)
-from models.detector import load_templates, save_templates
+try:
+    from models.admin_manager import (
+        check_admin, load_admins, add_admin,
+        delete_admin, ensure_default_admin,
+        get_admin_backend_url, update_admin_backend
+    )
+    from models.detector import load_templates, save_templates
+    _import_error = None
+except Exception as _e:
+    _import_error = traceback.format_exc()
+    logging.error(f"Import error: {_import_error}")
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "sentinel-change-this-in-production")
@@ -86,6 +96,12 @@ def login_page():
         if not backend_url.startswith("http"):
             error = "Backend URL must start with http:// or https://"
         elif check_admin(username, password):
+            # If user didn't override the default, fall back to their saved URL
+            stored_url = get_admin_backend_url(username)
+            if backend_url == BACKEND_URL and stored_url:
+                backend_url = stored_url
+            # Persist the URL they used so it pre-fills next time
+            update_admin_backend(username, backend_url.rstrip("/"))
             session["admin"]       = username
             session["backend_url"] = backend_url.rstrip("/")
             return redirect(url_for("dashboard"))
@@ -264,11 +280,41 @@ def remove_admin(username):
 
 
 # ---------------------------------------------------------------------------
+# Health check (used by Azure App Service)
+# ---------------------------------------------------------------------------
+
+@app.route("/health")
+def health():
+    if _import_error:
+        return f"<pre>{_import_error}</pre>", 500
+    return "OK", 200
+
+
+@app.route("/debug")
+def debug():
+    if _import_error:
+        return f"<pre>IMPORT ERROR:\n{_import_error}</pre>", 500
+    return "<pre>No import errors. App loaded OK.</pre>", 200
+
+
+# ---------------------------------------------------------------------------
 # Boot
 # ---------------------------------------------------------------------------
 
+_initialized = False
+
+@app.before_request
+def _startup():
+    global _initialized
+    if not _initialized:
+        _initialized = True
+        if _import_error is None:
+            try:
+                ensure_default_admin()
+            except Exception:
+                logging.error("ensure_default_admin failed", exc_info=True)
+
 if __name__ == "__main__":
-    ensure_default_admin()
     print(f"\n  Log Sentinel AI  |  Frontend Server")
     print(f"  Dashboard  ->  http://localhost:5000")
     print(f"  ML Backend ->  {BACKEND_URL}\n")

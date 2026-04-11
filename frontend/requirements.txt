@@ -3,3 +3,5 @@ requests>=2.31
 watchdog>=4.0
 python-dotenv>=1.0
 gunicorn>=21.2
+sqlalchemy>=2.0
+psycopg2-binary>=2.9
