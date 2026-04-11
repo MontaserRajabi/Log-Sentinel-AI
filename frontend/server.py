@@ -8,6 +8,19 @@ Run:
 Set BACKEND_URL to your teammate's backend IP:port.
 """
 
+import subprocess
+import sys
+
+# Auto-install dependencies if missing (Azure deployment without Oryx build step)
+try:
+    import flask, requests as _r, dotenv
+except ImportError:
+    subprocess.check_call([
+        sys.executable, "-m", "pip", "install",
+        "flask", "requests", "python-dotenv",
+        "--quiet", "--disable-pip-version-check"
+    ])
+
 import traceback
 import logging
 logging.basicConfig(level=logging.INFO)
