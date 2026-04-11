@@ -1,0 +1,60 @@
+name: Delete old Oryx tarball and redeploy
+
+on:
+  workflow_dispatch:
+
+jobs:
+  cleanup-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_ABA8ADC399CA423CA5456FEC3F20CC31 }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_1F59533F6EB247FCBBCC995174C841C2 }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_64CDF56992DD40C695AE0C75AB75E7A4 }}
+
+      - name: Get subscription and resource group
+        id: info
+        run: |
+          SUB=$(az account show --query id -o tsv)
+          RG=$(az webapp list --query "[?name=='Log-Sentinel-Ai'].resourceGroup" -o tsv)
+          echo "sub=$SUB" >> $GITHUB_OUTPUT
+          echo "rg=$RG" >> $GITHUB_OUTPUT
+
+      - name: Delete oryx-manifest.toml via ARM Kudu VFS
+        run: |
+          az rest --method DELETE \
+            --url "https://management.azure.com/subscriptions/${{ steps.info.outputs.sub }}/resourceGroups/${{ steps.info.outputs.rg }}/providers/Microsoft.Web/sites/Log-Sentinel-Ai/hostruntime/admin/vfs/site/wwwroot/oryx-manifest.toml?api-version=2022-03-01" \
+            --headers "If-Match=*" || echo "oryx-manifest.toml not found or already deleted"
+
+      - name: Delete output.tar.zst via ARM Kudu VFS
+        run: |
+          az rest --method DELETE \
+            --url "https://management.azure.com/subscriptions/${{ steps.info.outputs.sub }}/resourceGroups/${{ steps.info.outputs.rg }}/providers/Microsoft.Web/sites/Log-Sentinel-Ai/hostruntime/admin/vfs/site/wwwroot/output.tar.zst?api-version=2022-03-01" \
+            --headers "If-Match=*" || echo "output.tar.zst not found or already deleted"
+
+      - name: Zip and deploy fresh frontend
+        run: |
+          cd frontend
+          zip -r ../app.zip .
+
+      - name: Deploy zip
+        run: |
+          RG="${{ steps.info.outputs.rg }}"
+          az webapp deploy \
+            --name Log-Sentinel-Ai \
+            --resource-group "$RG" \
+            --src-path app.zip \
+            --type zip \
+            --async false
+
+      - name: Restart app
+        run: |
+          az webapp restart --name Log-Sentinel-Ai --resource-group ${{ steps.info.outputs.rg }}
