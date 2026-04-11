@@ -55,6 +55,11 @@ jobs:
       - name: Stop web app (prevent SCM restart during build)
         run: az webapp stop --name Log-Sentinel-Ai --resource-group ${{ steps.rg.outputs.name }}
 
+      - name: Restart SCM to clear any stuck deployment locks
+        run: |
+          az webapp restart --name Log-Sentinel-Ai --resource-group ${{ steps.rg.outputs.name }} || true
+          sleep 20
+
       - name: Deploy zip via Azure CLI
         run: |
           az webapp deploy \
