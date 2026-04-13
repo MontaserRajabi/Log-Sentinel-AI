@@ -1,5 +1,8 @@
-pandas
-scikit-learn
-pyarrow
-joblib
-tkinter
+fastapi>=0.110
+uvicorn[standard]>=0.29
+pandas>=2.0
+scikit-learn>=1.4
+pyarrow>=15.0
+joblib>=1.3
+numpy>=1.26
+requests>=2.31
