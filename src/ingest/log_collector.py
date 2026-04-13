@@ -399,13 +399,14 @@ def read_linux_file(source: dict, cursor: dict) -> tuple[list[dict], int]:
                 continue
 
             events.append({
-                "source"     : name,
-                "os"         : "linux",
-                "raw"        : raw_line,
-                "collected_at": datetime.now().isoformat(timespec="seconds"),
-                "block_id"   : _extract_block_id_linux(raw_line, name),
-                "template_id": _classify_template(raw_line),
-                "line_id"    : None,
+                "source"        : name,
+                "source_machine": platform.node(),
+                "os"            : "linux",
+                "raw"           : raw_line,
+                "collected_at"  : datetime.now().isoformat(timespec="seconds"),
+                "block_id"      : _extract_block_id_linux(raw_line, name),
+                "template_id"   : _classify_template(raw_line),
+                "line_id"       : None,
             })
         new_pos = f.tell()
 
@@ -498,6 +499,7 @@ def read_windows_eventlog(source: dict, cursor: dict) -> tuple[list[dict], int]:
 
                 events.append({
                     "source"         : name,
+                    "source_machine" : platform.node(),
                     "os"             : "windows",
                     "raw"            : raw_line,
                     "collected_at"   : datetime.now().isoformat(timespec="seconds"),
@@ -600,8 +602,10 @@ def extract_realtime_features(
             1 for e in evts if e.get("priority_threat")
         )
 
+        source_machine = evts[0].get("source_machine") or platform.node()
         row = {
             "block_id"          : block_id,
+            "source_machine"    : source_machine,
             "num_events"        : len(evts),
             "unique_templates"  : len(set(templates)),
             "avg_msg_len"       : float(np.mean(msg_lens)),
@@ -790,6 +794,7 @@ def emit_alert(row: pd.Series, events_out: Path, alerts_out: Path) -> None:
     alert = {
         "alert_at"         : datetime.now().isoformat(timespec="seconds"),
         "block_id"         : row["block_id"],
+        "source_machine"   : str(row.get("source_machine") or platform.node()),
         "anomaly_score"    : round(raw_score, 6),
         "cvss_score"       : cvss,
         "num_events"       : int(row.get("num_events", 0)),

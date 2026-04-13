@@ -133,6 +133,25 @@ body {
 .filter-btn.f-high.active   { border-color:var(--danger); color:var(--danger); }
 .filter-btn.f-medium.active { border-color:var(--warn);   color:var(--warn); }
 .filter-btn.f-low.active    { border-color:var(--ok);     color:var(--ok); }
+#machine-filter {
+  background: rgba(0,212,255,.03);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 4px 10px;
+  color: var(--sub);
+  font-family: var(--mono);
+  font-size: .72rem;
+  letter-spacing: 1px;
+  cursor: pointer;
+  outline: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%234a6080' d='M5 6L0 0h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  padding-right: 24px;
+}
+#machine-filter:focus { border-color: var(--accent); color: var(--text); }
+#machine-filter option { background: #0f1623; color: var(--text); }
 
 .tbl-scroll { flex:1; overflow-y:auto; }
 .tbl-scroll::-webkit-scrollbar { width:4px; }
@@ -148,13 +167,13 @@ thead th {
 tbody tr { border-bottom:1px solid rgba(26,37,64,.5); transition:background .1s; }
 tbody tr:hover { background:rgba(0,212,255,.025); }
 td { font-family:var(--mono); font-size:.68rem; padding:5px 11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:0; }
-td.log-col  { width:40%; max-width:300px; color:var(--text); }
-td.src-col  { width:10%; color:var(--sub); }
+td.log-col  { width:36%; max-width:300px; color:var(--text); }
+td.src-col  { width:10%; color:var(--sub); font-family:var(--mono); font-size:.78rem; }
 td.scr-col  { width:7%;  color:var(--text); text-align:center; }
 td.lvl-col  { width:9%;  text-align:center; }
 td.lbl-col  { width:16%; }
-td.fb-col   { width:10%; text-align:center; }
-td.time-col { width:12%; color:var(--sub); }
+td.fb-col   { width:9%;  text-align:center; }
+td.time-col { width:10%; color:var(--sub); }
 
 .badge { display:inline-block; font-size:.54rem; padding:2px 6px; border-radius:2px; letter-spacing:1.5px; font-weight:700; }
 .badge-critical { background:rgba(180,0,255,.18);  color:#c084fc; border:1px solid rgba(180,0,255,.4); }
@@ -327,6 +346,9 @@ td.time-col { width:12%; color:var(--sub); }
           <button class="filter-btn f-high"     onclick="setFilter('HIGH',this)">HIGH</button>
           <button class="filter-btn f-medium"   onclick="setFilter('MEDIUM',this)">MED</button>
           <button class="filter-btn f-low"      onclick="setFilter('LOW',this)">LOW</button>
+          <select id="machine-filter" onchange="setMachineFilter(this.value)" title="Filter by machine">
+            <option value="">ALL MACHINES</option>
+          </select>
         </div>
       </div>
       <div class="tbl-scroll">
@@ -334,7 +356,7 @@ td.time-col { width:12%; color:var(--sub); }
           <thead>
             <tr>
               <th class="log-col">Description</th>
-              <th class="src-col">Source</th>
+              <th class="src-col">Machine</th>
               <th class="scr-col">Score</th>
               <th class="lvl-col">Level</th>
               <th class="lbl-col">Label</th>
@@ -446,6 +468,7 @@ td.time-col { width:12%; color:var(--sub); }
 let allRows       = [];
 let allAlerts     = [];
 let pendingFeedback = {};   // { block_id: label } — collected but not submitted
+let currentMachine  = '';   // '' = all machines
 let currentFilter = 'ALL';
 let currentTab    = 'alerts';
 const REFRESH_MS  = 5000;
@@ -508,6 +531,25 @@ function setFilter(level, btn) {
   renderTable();
 }
 
+function setMachineFilter(machine) {
+  currentMachine = machine;
+  renderTable();
+}
+
+function updateMachineDropdown(machines) {
+  const sel = document.getElementById('machine-filter');
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">ALL MACHINES</option>';
+  machines.forEach(m => {
+    const opt = document.createElement('option');
+    opt.value = m;
+    opt.textContent = m.split('.')[0];  // trim domain
+    opt.title = m;
+    if (m === prev) opt.selected = true;
+    sel.appendChild(opt);
+  });
+}
+
 function switchTab(tab, btn) {
   currentTab = tab;
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
@@ -548,6 +590,7 @@ function normalise(raw) {
       id:       r.block_id||r.id||'',
       log:      logText,
       source:   r.source||r.host||'backend',
+      machine:  r.source_machine||r.source||'',
       score:    dispScore !== null ? dispScore.toFixed(1) : '—',
       rawScore: rawScore !== null ? rawScore : 0,
       level:    level,
@@ -645,13 +688,15 @@ async function submitAllFeedback() {
 function renderTable() {
   const tbody = document.getElementById('log-body');
   tbody.innerHTML = '';
-  const rows = currentFilter==='ALL'?allRows:allRows.filter(r=>r.level===currentFilter);
+  let rows = currentFilter==='ALL' ? allRows : allRows.filter(r=>r.level===currentFilter);
+  if (currentMachine) rows = rows.filter(r=>r.machine===currentMachine);
   rows.forEach(r=>{
     const tr = document.createElement('tr');
     const isAlerts = currentTab==='alerts';
+    const machineLabel = r.machine ? r.machine.split('.')[0] : '—';  // trim domain if any
     tr.innerHTML=`
       <td class="log-col" title="${r.log}">${r.log}</td>
-      <td class="src-col">${r.source}</td>
+      <td class="src-col" title="${r.machine||''}">${machineLabel}</td>
       <td class="scr-col">${r.score}</td>
       <td class="lvl-col">${lvlBadge(r.level)}</td>
       <td class="lbl-col">${isAlerts?buildLabelSelect(r):'—'}</td>
@@ -722,16 +767,19 @@ function setBackendStatus(online) {
 async function refresh() {
   const endpoint = currentTab==='alerts'?'/proxy/alerts?limit=500':'/proxy/events?limit=500';
   try {
-    const [rowsRes,alertsRes,statusRes,metricsRes] = await Promise.all([
-      fetch(endpoint), fetch('/proxy/alerts?limit=500'), fetch('/proxy/status'), fetch('/proxy/metrics')
+    const [rowsRes,alertsRes,statusRes,metricsRes,machinesRes] = await Promise.all([
+      fetch(endpoint), fetch('/proxy/alerts?limit=500'), fetch('/proxy/status'),
+      fetch('/proxy/metrics'), fetch('/proxy/alerts/machines'),
     ]);
     setBackendStatus(rowsRes.ok);
     const rawRows    = await rowsRes.json();
-    const rawAlerts  = alertsRes.ok ? await alertsRes.json() : rawRows;
-    const statusD    = statusRes.ok  ? await statusRes.json()  : {};
-    const metricsD   = metricsRes.ok ? await metricsRes.json() : {};
+    const rawAlerts  = alertsRes.ok  ? await alertsRes.json()  : rawRows;
+    const statusD    = statusRes.ok   ? await statusRes.json()  : {};
+    const metricsD   = metricsRes.ok  ? await metricsRes.json() : {};
+    const machinesD  = machinesRes.ok ? await machinesRes.json(): {};
     allRows = normalise(rawRows);
     allAlerts = normalise(rawAlerts);
+    if (machinesD.machines) updateMachineDropdown(machinesD.machines);
     renderTable(); renderSideAlerts(); updateChart(); updateStats(statusD,metricsD);
   } catch(e) { setBackendStatus(false); }
 }

@@ -80,6 +80,22 @@ _collector_thread: threading.Thread | None = None
 _collector_stop   = threading.Event()
 _collector_start_time: float | None = None
 
+# ── Shared model for inline ingest scoring ─────────────────────────────────────
+_ingest_model        = None
+_ingest_feature_cols = None
+
+def _get_ingest_model():
+    """Lazily load the trained model for scoring agent-submitted events."""
+    global _ingest_model, _ingest_feature_cols
+    if _ingest_model is None and MODEL_FILE.exists() and META_FILE.exists():
+        try:
+            from ingest.log_collector import load_model_and_meta
+            _ingest_model, _ingest_feature_cols = load_model_and_meta(MODEL_FILE, META_FILE)
+            logger.info("Ingest model loaded for inline scoring.")
+        except Exception as e:
+            logger.warning("Could not load ingest model: %s", e)
+    return _ingest_model, _ingest_feature_cols
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # APP SETUP
@@ -192,6 +208,7 @@ def ingest_logs(logs: list[dict]):
 
     written = 0
     EVENTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    events_for_scoring: list[dict] = []
 
     with open(EVENTS_FILE, "a", encoding="utf-8") as f:
         for item in logs:
@@ -200,14 +217,34 @@ def ingest_logs(logs: list[dict]):
             if not raw:
                 continue
             event = {
-                "raw"          : raw,
-                "block_id"     : f"agent_{source}_{datetime.now().strftime('%Y%m%d_%H%M')}",
-                "source"       : source,
-                "os"           : "unknown",
-                "collected_at" : datetime.now().isoformat(timespec="seconds"),
+                "raw"           : raw,
+                "block_id"      : f"agent_{source}_{datetime.now().strftime('%Y%m%d_%H%M')}",
+                "source"        : source,
+                "source_machine": source,
+                "os"            : "unknown",
+                "collected_at"  : datetime.now().isoformat(timespec="seconds"),
+                "template_id"   : "agent_generic",
             }
             f.write(json.dumps(event) + "\n")
+            events_for_scoring.append(event)
             written += 1
+
+    # Score the batch and emit alerts if the model is available
+    if events_for_scoring:
+        try:
+            model, feature_cols = _get_ingest_model()
+            if model is not None:
+                from ingest.log_collector import (
+                    extract_realtime_features, score_events,
+                    emit_alert, ANOMALY_SCORE_THRESHOLD,
+                )
+                df_feat = extract_realtime_features(events_for_scoring, min_events_per_block=1)
+                if not df_feat.empty:
+                    df_scored = score_events(df_feat, model, feature_cols, ANOMALY_SCORE_THRESHOLD)
+                    for _, row in df_scored[df_scored["is_anomaly"]].iterrows():
+                        emit_alert(row, EVENTS_FILE, ALERTS_FILE)
+        except Exception as _e:
+            logger.warning("Ingest scoring error: %s", _e)
 
     logger.info("Ingested %d log line(s) from agent.", written)
     return {"status": "ok", "received": written}, 201
@@ -249,12 +286,21 @@ def get_status():
 
 # ── Alerts ────────────────────────────────────────────────────────────────────
 
+@app.get("/alerts/machines", tags=["Alerts"])
+def get_machines():
+    """Return sorted list of unique source_machine values seen in alerts."""
+    alerts = _read_jsonl(ALERTS_FILE, limit=2000)
+    machines = sorted({a.get("source_machine", "") for a in alerts if a.get("source_machine")})
+    return {"machines": machines}
+
+
 @app.get("/alerts", tags=["Alerts"])
 def get_alerts(
     limit    : int   = Query(100, ge=1, le=1000, description="Max alerts to return"),
     priority : str   = Query("all", description="Filter: all | CRITICAL | HIGH | MEDIUM | LOW"),
     threat   : str   = Query("",    description="Filter by threat category e.g. brute_force"),
     labelled : str   = Query("all", description="Filter: all | labelled | unlabelled"),
+    machine  : str   = Query("",    description="Filter by source machine hostname"),
 ):
     """
     Returns paginated alert history with optional filters.
@@ -288,6 +334,9 @@ def get_alerts(
     elif labelled == "unlabelled":
         alerts = [a for a in alerts if a["label"] is None]
 
+    if machine:
+        alerts = [a for a in alerts if a.get("source_machine", "") == machine]
+
     return {
         "total"  : len(alerts),
         "alerts" : list(reversed(alerts)),   # newest first
@@ -301,7 +350,7 @@ def label_alert(block_id: str, body: LabelRequest):
     Labels are stored in data/staging/alert_labels.json and merged
     into GET /alerts responses. This feeds the model's adaptive learning loop.
     """
-    valid_labels = {"false_positive", "confirmed", "investigating"}
+    valid_labels = {"true_positive", "false_positive", "true_negative", "false_negative"}
     if body.label not in valid_labels:
         raise HTTPException(
             status_code=400,

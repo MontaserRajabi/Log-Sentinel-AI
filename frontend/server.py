@@ -140,10 +140,17 @@ def proxy_status():
     return jsonify(data), code
 
 
+@app.route("/proxy/alerts/machines")
+@login_required
+def proxy_alert_machines():
+    data, code = _backend("/alerts/machines")
+    return jsonify(data), code
+
+
 @app.route("/proxy/alerts")
 @login_required
 def proxy_alerts():
-    data, code = _backend("/alerts")
+    data, code = _backend("/alerts", params=request.args)
     return jsonify(data), code
 
 
