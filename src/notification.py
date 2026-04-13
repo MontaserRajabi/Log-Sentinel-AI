@@ -78,7 +78,7 @@ EMAIL_PORT       = int(os.getenv("NOTIFY_EMAIL_PORT", 587))
 EMAIL_USER       = os.getenv("NOTIFY_EMAIL_USER", "")
 EMAIL_PASS       = os.getenv("NOTIFY_EMAIL_PASS", "")
 
-MIN_PRIORITY     = os.getenv("NOTIFY_MIN_PRIORITY", "MEDIUM").upper()
+MIN_PRIORITY     = os.getenv("NOTIFY_MIN_PRIORITY", "MEDIUM").upper()   # CRITICAL | HIGH | MEDIUM
 COOLDOWN_SEC     = int(os.getenv("NOTIFY_COOLDOWN_SEC", 60))
 SOUND_ENABLED    = os.getenv("NOTIFY_SOUND", "true").lower() == "true"
 POLL_INTERVAL    = 2      # seconds between file checks
@@ -101,7 +101,7 @@ def _notify_windows(title: str, message: str, priority: str) -> bool:
             title,
             message,
             icon_path = None,
-            duration  = 10 if priority == "HIGH" else 5,
+            duration  = 15 if priority == "CRITICAL" else 10 if priority == "HIGH" else 5,
             threaded  = True,
         )
         return True
@@ -112,7 +112,7 @@ def _notify_windows(title: str, message: str, priority: str) -> bool:
     try:
         import ctypes
         # MB_ICONWARNING = 0x30, MB_ICONERROR = 0x10, MB_OK = 0x0
-        icon = 0x10 if priority == "HIGH" else 0x30
+        icon = 0x10 if priority in ("CRITICAL", "HIGH") else 0x30
         ctypes.windll.user32.MessageBoxW(0, message, title, icon | 0x40000)
         return True
     except Exception as exc:
@@ -126,7 +126,7 @@ def _notify_linux(title: str, message: str, priority: str) -> bool:
     Works on GNOME, KDE, XFCE and most modern desktops.
     """
     import subprocess
-    urgency = "critical" if priority == "HIGH" else "normal"
+    urgency = "critical" if priority in ("CRITICAL", "HIGH") else "normal"
     try:
         subprocess.run(
             ["notify-send", "-u", urgency, "-t", "8000", title, message],
@@ -146,6 +146,7 @@ def _notify_linux(title: str, message: str, priority: str) -> bool:
 def send_desktop_notification(title: str, message: str, priority: str) -> bool:
     """
     Dispatch a desktop notification using the appropriate backend for the OS.
+    Supported: Windows, Linux. macOS is not supported.
     Returns True if the notification was sent successfully.
     """
     os_name = platform.system().lower()
@@ -154,9 +155,7 @@ def send_desktop_notification(title: str, message: str, priority: str) -> bool:
     elif os_name == "linux":
         return _notify_linux(title, message, priority)
     else:
-        logger.warning(
-            "Desktop notifications not supported on %s.", platform.system()
-        )
+        logger.warning("Desktop notifications not supported on %s.", platform.system())
         return False
 
 
@@ -174,19 +173,19 @@ def play_alert_sound(priority: str) -> None:
     if not SOUND_ENABLED:
         return
 
-    beeps = 3 if priority == "HIGH" else 1
+    beeps = 5 if priority == "CRITICAL" else 3 if priority == "HIGH" else 1
     os_name = platform.system().lower()
 
     try:
         if os_name == "windows":
             import winsound
-            freq     = 1200 if priority == "HIGH" else 800
+            freq     = 1500 if priority == "CRITICAL" else 1200 if priority == "HIGH" else 800
             duration = 300
             for _ in range(beeps):
                 winsound.Beep(freq, duration)
                 time.sleep(0.1)
         else:
-            # Linux: write BEL character to terminal
+            # Linux: BEL character to terminal
             for _ in range(beeps):
                 sys.stdout.write("\a")
                 sys.stdout.flush()
@@ -218,15 +217,30 @@ def send_email_notification(alert: dict) -> bool:
     threats    = ", ".join(alert.get("threat_categories", [])) or "unknown"
     priority   = alert.get("priority", "MEDIUM")
     score      = alert.get("anomaly_score", 0)
+    _PRIORITY_CVSS = {"CRITICAL": 9.5, "HIGH": 7.5, "MEDIUM": 5.0, "LOW": 2.0}
+    cvss       = alert.get("cvss_score") or _PRIORITY_CVSS.get(priority)
     block_id   = alert.get("block_id", "N/A")
     alert_time = alert.get("alert_at", datetime.now().isoformat())
     n_events   = alert.get("num_events", 0)
 
+    priority_color = {
+        "CRITICAL": "#7c3aed",
+        "HIGH"    : "#c0392b",
+        "MEDIUM"  : "#e67e22",
+        "LOW"     : "#27ae60",
+    }.get(priority, "#e67e22")
+
     subject = f"[Log Sentinel AI] {priority} Alert — {threats}"
+
+    cvss_row = f"""
+        <tr style="background:#f2f2f2;">
+            <td style="padding:8px; font-weight:bold;">CVSS Score</td>
+            <td style="padding:8px; font-weight:bold; color:{priority_color};">{cvss:.1f} / 10</td>
+        </tr>""" if cvss is not None else ""
 
     body_html = f"""
     <html><body style="font-family: Arial, sans-serif; color: #222;">
-    <h2 style="color: {'#c0392b' if priority == 'HIGH' else '#e67e22'};">
+    <h2 style="color: {priority_color};">
         🚨 Log Sentinel AI — {priority} Priority Alert
     </h2>
     <table style="border-collapse:collapse; width:100%; max-width:600px;">
@@ -245,16 +259,14 @@ def send_email_notification(alert: dict) -> bool:
         <tr>
             <td style="padding:8px; font-weight:bold;">Anomaly Score</td>
             <td style="padding:8px;">{score:.6f}</td>
-        </tr>
+        </tr>{cvss_row}
         <tr style="background:#f2f2f2;">
             <td style="padding:8px; font-weight:bold;">Events in Block</td>
             <td style="padding:8px;">{n_events}</td>
         </tr>
         <tr>
             <td style="padding:8px; font-weight:bold;">Priority</td>
-            <td style="padding:8px;
-                color: {'#c0392b' if priority == 'HIGH' else '#e67e22'};
-                font-weight: bold;">
+            <td style="padding:8px; color:{priority_color}; font-weight:bold;">
                 {priority}
             </td>
         </tr>
@@ -344,9 +356,9 @@ def _should_notify(alert: dict) -> bool:
 def _meets_priority(alert: dict) -> bool:
     """Return True if the alert priority meets the minimum configured level."""
     priority = alert.get("priority", "MEDIUM")
-    if MIN_PRIORITY == "HIGH":
-        return priority == "HIGH"
-    return priority in ("HIGH", "MEDIUM")   # skip LOW alerts
+    # Priority order: CRITICAL > HIGH > MEDIUM > LOW
+    order = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1}
+    return order.get(priority, 0) >= order.get(MIN_PRIORITY, 2)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -374,16 +386,27 @@ def dispatch(alert: dict) -> None:
     block_id   = alert.get("block_id", "N/A")
     score      = alert.get("anomaly_score", 0)
 
+    # Use stored cvss_score only if it's consistent with the priority band.
+    # If the stored value is too low for the label (stale/inconsistent data),
+    # fall back to the representative midpoint for that priority.
+    _PRIORITY_CVSS = {"CRITICAL": 9.5, "HIGH": 7.5, "MEDIUM": 5.0, "LOW": 2.0}
+    _PRIORITY_MIN  = {"CRITICAL": 9.0, "HIGH": 7.0, "MEDIUM": 4.0, "LOW": 0.0}
+    raw_cvss = alert.get("cvss_score")
+    if raw_cvss is not None and raw_cvss >= _PRIORITY_MIN.get(priority, 0):
+        cvss = raw_cvss
+    else:
+        cvss = _PRIORITY_CVSS.get(priority, 5.0)
+
     title   = f"🚨 Log Sentinel AI — {priority} Alert"
     message = (
         f"Threat: {threats}\n"
         f"Block:  {block_id}\n"
-        f"Score:  {score:.4f}"
+        f"CVSS:   {cvss:.1f}/10"
     )
 
     logger.warning(
-        "NOTIFICATION | priority=%-6s | threats=%-30s | block=%s",
-        priority, threats, block_id,
+        "NOTIFICATION | priority=%-8s | cvss=%-4s | threats=%-30s | block=%s",
+        priority, f"{cvss:.1f}" if cvss is not None else "n/a", threats, block_id,
     )
 
     channels_used = []

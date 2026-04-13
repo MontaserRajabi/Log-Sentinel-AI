@@ -252,7 +252,7 @@ def get_status():
 @app.get("/alerts", tags=["Alerts"])
 def get_alerts(
     limit    : int   = Query(100, ge=1, le=1000, description="Max alerts to return"),
-    priority : str   = Query("all", description="Filter: all | HIGH | MEDIUM"),
+    priority : str   = Query("all", description="Filter: all | CRITICAL | HIGH | MEDIUM | LOW"),
     threat   : str   = Query("",    description="Filter by threat category e.g. brute_force"),
     labelled : str   = Query("all", description="Filter: all | labelled | unlabelled"),
 ):

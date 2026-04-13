@@ -734,18 +734,68 @@ def emit_alert(row: pd.Series, events_out: Path, alerts_out: Path) -> None:
     threat_cols = [c for c in row.index if c.endswith("_hits") and row[c] > 0]
     threat_cats = [c.replace("_hits", "") for c in threat_cols]
 
+    raw_score = float(row["anomaly_score"])
+    p_hits    = row.get("priority_hits", 0)
+    is_hdfs   = raw_score < 0   # HDFS model produces negative scores
+
+    # ── Priority assignment ────────────────────────────────────────────────────
+    # Windows model (positive, lower = more anomalous, threshold ≈ 0.10):
+    #   CRITICAL ≤ 0.02 | HIGH ≤ 0.05 | MEDIUM ≤ 0.08 | LOW otherwise
+    # HDFS model (negative, more negative = more anomalous, threshold ≈ -0.10):
+    #   CRITICAL ≤ -0.15 | HIGH ≤ -0.12 | MEDIUM ≤ -0.10 | LOW otherwise
+    if is_hdfs:
+        if p_hits >= 3 or raw_score <= -0.15:
+            priority = "CRITICAL"
+        elif p_hits > 0 or raw_score <= -0.12:
+            priority = "HIGH"
+        elif raw_score <= -0.10:
+            priority = "MEDIUM"
+        else:
+            priority = "LOW"
+    else:
+        if p_hits >= 3 or raw_score <= 0.02:
+            priority = "CRITICAL"
+        elif p_hits > 0 or raw_score <= 0.05:
+            priority = "HIGH"
+        elif raw_score <= 0.08:
+            priority = "MEDIUM"
+        else:
+            priority = "LOW"
+
+    # ── CVSS score (0–10, banded to always match priority label) ──────────────
+    # Each priority band maps linearly to its CVE range:
+    #   CRITICAL → 9.0–10.0 | HIGH → 7.0–9.0 | MEDIUM → 4.0–7.0 | LOW → 0.1–4.0
+    if is_hdfs:
+        # HDFS: more negative = more dangerous
+        if priority == "CRITICAL":
+            cvss = round(min(10.0, 9.0 + (abs(raw_score) - 0.15) / 0.05), 1)
+        elif priority == "HIGH":
+            cvss = round(7.0 + (abs(raw_score) - 0.12) / 0.03 * 2.0, 1)
+        elif priority == "MEDIUM":
+            cvss = round(4.0 + (abs(raw_score) - 0.10) / 0.02 * 3.0, 1)
+        else:
+            cvss = round(max(0.1, abs(raw_score) * 10), 1)
+    else:
+        # Windows: lower score = more dangerous
+        if priority == "CRITICAL":
+            cvss = round(min(10.0, 9.0 + (0.02 - raw_score) / 0.02), 1)
+        elif priority == "HIGH":
+            cvss = round(7.0 + (0.05 - raw_score) / 0.03 * 2.0, 1)
+        elif priority == "MEDIUM":
+            cvss = round(4.0 + (0.08 - raw_score) / 0.03 * 3.0, 1)
+        else:
+            cvss = round(max(0.1, (0.10 - raw_score) / 0.02 * 3.9), 1)
+    cvss = round(max(0.0, min(10.0, cvss)), 1)
+
     alert = {
         "alert_at"         : datetime.now().isoformat(timespec="seconds"),
         "block_id"         : row["block_id"],
-        "anomaly_score"    : round(float(row["anomaly_score"]), 6),
+        "anomaly_score"    : round(raw_score, 6),
+        "cvss_score"       : cvss,
         "num_events"       : int(row.get("num_events", 0)),
         "error_count"      : int(row.get("error_count", 0)),
         "threat_categories": threat_cats,
-        "priority"         : (
-            "HIGH"   if row.get("priority_hits", 0) > 0 or float(row["anomaly_score"]) <= 0.05
-            else "MEDIUM" if float(row["anomaly_score"]) <= 0.08
-            else "LOW"
-        ),
+        "priority"         : priority,
     }
 
     alerts_out.parent.mkdir(parents=True, exist_ok=True)
@@ -753,9 +803,10 @@ def emit_alert(row: pd.Series, events_out: Path, alerts_out: Path) -> None:
         f.write(json.dumps(alert) + "\n")
 
     logger.warning(
-        "🚨 ALERT | block=%-38s | score=%.4f | threats=%s | priority=%s",
+        "🚨 ALERT | block=%-38s | score=%.4f | cvss=%.1f | threats=%s | priority=%s",
         alert["block_id"],
         alert["anomaly_score"],
+        alert["cvss_score"],
         threat_cats or ["unknown"],
         alert["priority"],
     )

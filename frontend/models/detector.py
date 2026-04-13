@@ -6,14 +6,16 @@ Current implementation: rule-based keyword + template scoring.
 This module is designed as a drop-in replacement — when your teammate
 finishes the ML backend, they only need to replace `analyze_log()`.
 
-Scoring logic:
+Scoring logic (CVSS / CVE scale 0.0 – 10.0):
   - Base score starts at 0.0
   - Each matched attack keyword adds a weighted score
   - Template matches (admin-defined patterns) add bonus weight
-  - Final score is clamped to [0.0, 1.0]
-  - Score >= 0.7  → HIGH threat
-  - Score >= 0.4  → MEDIUM threat
-  - Score <  0.4  → LOW / normal
+  - Final score is clamped to [0.0, 10.0]
+  - Score >= 9.0  → CRITICAL
+  - Score >= 7.0  → HIGH
+  - Score >= 4.0  → MEDIUM
+  - Score >  0.0  → LOW
+  - Score == 0.0  → NONE
 """
 
 import re
@@ -29,55 +31,55 @@ _templates_cache: Optional[list] = None
 # ---------------------------------------------------------------------------
 ATTACK_KEYWORDS: dict[str, float] = {
     # Authentication failures
-    "failed login":        0.55,
-    "authentication failed": 0.55,
-    "invalid password":    0.50,
-    "invalid credentials": 0.50,
-    "login failed":        0.55,
-    "failed":              0.25,
+    "failed login":        5.5,
+    "authentication failed": 5.5,
+    "invalid password":    5.0,
+    "invalid credentials": 5.0,
+    "login failed":        5.5,
+    "failed":              2.5,
 
     # Access control
-    "unauthorized":        0.60,
-    "access denied":       0.60,
-    "permission denied":   0.55,
-    "forbidden":           0.50,
-    "denied":              0.40,
+    "unauthorized":        6.0,
+    "access denied":       6.0,
+    "permission denied":   5.5,
+    "forbidden":           5.0,
+    "denied":              4.0,
 
     # Privilege / escalation
-    "privilege escalation": 0.75,
-    "sudo":                0.20,
-    "root access":         0.65,
-    "admin access":        0.50,
+    "privilege escalation": 7.5,
+    "sudo":                2.0,
+    "root access":         6.5,
+    "admin access":        5.0,
 
     # Injection / exploitation
-    "sql injection":       0.85,
-    "xss":                 0.80,
-    "script injection":    0.80,
-    "command injection":   0.85,
-    "exploit":             0.75,
-    "payload":             0.65,
+    "sql injection":       8.5,
+    "xss":                 8.0,
+    "script injection":    8.0,
+    "command injection":   8.5,
+    "exploit":             7.5,
+    "payload":             6.5,
 
     # Brute force
-    "brute force":         0.80,
-    "multiple failed":     0.70,
-    "repeated attempts":   0.70,
+    "brute force":         8.0,
+    "multiple failed":     7.0,
+    "repeated attempts":   7.0,
 
     # Malware / tampering
-    "malware":             0.90,
-    "ransomware":          0.95,
-    "trojan":              0.90,
-    "log tamper":          0.85,
-    "modified log":        0.85,
+    "malware":             9.0,
+    "ransomware":          9.5,
+    "trojan":              9.0,
+    "log tamper":          8.5,
+    "modified log":        8.5,
 
     # Network
-    "port scan":           0.70,
-    "intrusion":           0.75,
-    "suspicious ip":       0.65,
+    "port scan":           7.0,
+    "intrusion":           7.5,
+    "suspicious ip":       6.5,
 
     # General anomaly
-    "error":               0.15,
-    "attack":              0.70,
-    "warning":             0.10,
+    "error":               1.5,
+    "attack":              7.0,
+    "warning":             1.0,
 }
 
 
@@ -160,7 +162,7 @@ def _template_score(log_lower: str) -> float:
     bonus = 0.0
     for template in _templates_cache:
         if template.lower() in log_lower:
-            bonus += 0.30
+            bonus += 3.0
     return bonus
 
 
@@ -187,19 +189,23 @@ def analyze_log(log: str) -> float:
 
     score = _keyword_score(log_lower) + _template_score(log_lower)
 
-    # Clamp to [0, 1]
-    score = min(score, 1.0)
+    # Clamp to [0, 10]
+    score = min(score, 10.0)
 
-    return round(score, 2)
+    return round(score, 1)
 
 
 def classify_score(score: float) -> str:
     """
-    Convert a numeric score to a human-readable threat level.
+    Convert a numeric score (CVE/CVSS scale 0.0–10.0) to a threat level.
     Used by the UI to colour-code rows.
     """
-    if score >= 0.7:
+    if score >= 9.0:
+        return "CRITICAL"
+    if score >= 7.0:
         return "HIGH"
-    if score >= 0.4:
+    if score >= 4.0:
         return "MEDIUM"
-    return "LOW"
+    if score > 0.0:
+        return "LOW"
+    return "NONE"

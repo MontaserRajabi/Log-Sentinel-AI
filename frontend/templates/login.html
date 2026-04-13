@@ -129,6 +129,25 @@
     border-color: var(--accent);
     box-shadow: 0 0 0 3px rgba(0,212,255,.08);
   }
+  .field select {
+    width: 100%;
+    background: rgba(0,212,255,.03);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: 12px 14px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: .95rem;
+    outline: none;
+    cursor: pointer;
+    transition: border-color .2s;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%234a6080' d='M6 8L0 0h12z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 14px center;
+  }
+  .field select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(0,212,255,.08); }
+  .field select option { background: #0f1623; color: var(--text); }
 
   .error {
     background: rgba(255,59,92,.08);
@@ -191,16 +210,20 @@
 
   <form method="POST">
     <div class="field">
-      <label>// BACKEND URL</label>
-      <input type="url" name="backend_url" value="{{ default_backend }}" placeholder="http://your-backend-ip:8000" required/>
-    </div>
-    <div class="field">
       <label>// USERNAME</label>
       <input type="text" name="username" autocomplete="username" autofocus required/>
     </div>
     <div class="field">
       <label>// PASSWORD</label>
       <input type="password" name="password" autocomplete="current-password" required/>
+    </div>
+    <div class="field">
+      <label>// YOUR MACHINE OS</label>
+      <select name="os_type">
+        <option value="auto">Auto-detect</option>
+        <option value="windows">Windows</option>
+        <option value="linux">Linux</option>
+      </select>
     </div>
     <button class="btn" type="submit">Authenticate</button>
   </form>

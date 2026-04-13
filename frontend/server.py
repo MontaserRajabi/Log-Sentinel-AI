@@ -34,7 +34,7 @@ try:
     from models.admin_manager import (
         check_admin, load_admins, add_admin,
         delete_admin, ensure_default_admin,
-        get_admin_backend_url, update_admin_backend
+        get_admin_backend_url, get_admin_os, update_admin_os,
     )
     from models.detector import load_templates, save_templates
     _import_error = None
@@ -101,26 +101,26 @@ def dashboard():
 def login_page():
     error = ""
     if request.method == "POST":
-        username    = request.form.get("username", "").strip()
-        password    = request.form.get("password", "")
-        backend_url = request.form.get("backend_url", "").strip() or BACKEND_URL
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
 
-        # Basic validation — must start with http
-        if not backend_url.startswith("http"):
-            error = "Backend URL must start with http:// or https://"
-        elif check_admin(username, password):
-            # If user didn't override the default, fall back to their saved URL
-            stored_url = get_admin_backend_url(username)
-            if backend_url == BACKEND_URL and stored_url:
-                backend_url = stored_url
-            # Persist the URL they used so it pre-fills next time
-            update_admin_backend(username, backend_url.rstrip("/"))
+        if check_admin(username, password):
+            # Use the admin's saved backend URL, or fall back to the env default
+            stored_url  = get_admin_backend_url(username)
+            backend_url = (stored_url or BACKEND_URL).rstrip("/")
+            # Persist OS type if the user changed it on this login
+            os_type = request.form.get("os_type", "").strip()
+            if os_type:
+                update_admin_os(username, os_type)
+            else:
+                os_type = get_admin_os(username)
             session["admin"]       = username
-            session["backend_url"] = backend_url.rstrip("/")
+            session["backend_url"] = backend_url
+            session["os_type"]     = os_type or "auto"
             return redirect(url_for("dashboard"))
         else:
             error = "Invalid username or password."
-    return render_template("login.html", error=error, default_backend=BACKEND_URL)
+    return render_template("login.html", error=error)
 
 
 @app.route("/logout")
@@ -290,6 +290,20 @@ def remove_admin(username):
     if not delete_admin(username):
         return jsonify({"error": "Admin not found"}), 404
     return jsonify({"deleted": username})
+
+
+@app.route("/api/admins/<username>/os", methods=["GET", "POST"])
+@login_required
+def admin_os(username):
+    if request.method == "POST":
+        data    = request.get_json(silent=True) or {}
+        os_type = data.get("os_type", "auto")
+        if not update_admin_os(username, os_type):
+            return jsonify({"error": "Admin not found"}), 404
+        if session.get("admin") == username:
+            session["os_type"] = os_type
+        return jsonify({"username": username, "os_type": os_type})
+    return jsonify({"username": username, "os_type": get_admin_os(username)})
 
 
 # ---------------------------------------------------------------------------

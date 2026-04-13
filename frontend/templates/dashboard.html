@@ -92,13 +92,13 @@ body {
 
 /* ── STATS ── */
 .stats-row {
-  display:grid; grid-template-columns:repeat(5,1fr);
+  display:grid; grid-template-columns:repeat(6,1fr);
   gap:1px; background:var(--border); border-bottom:1px solid var(--border); flex-shrink:0;
 }
-.stat { background:var(--panel); padding:11px 16px; display:flex; flex-direction:column; gap:3px; }
-.stat-label { font-family:var(--mono); font-size:.58rem; color:var(--sub); letter-spacing:2px; text-transform:uppercase; }
-.stat-value { font-family:var(--mono); font-size:1.4rem; font-weight:700; line-height:1; }
-.c-total { color:var(--accent); } .c-high { color:var(--danger); }
+.stat { background:var(--panel); padding:9px 12px; display:flex; flex-direction:column; gap:3px; }
+.stat-label { font-family:var(--mono); font-size:.54rem; color:var(--sub); letter-spacing:1.5px; text-transform:uppercase; }
+.stat-value { font-family:var(--mono); font-size:1.3rem; font-weight:700; line-height:1; }
+.c-total { color:var(--accent); } .c-critical { color:#c084fc; } .c-high { color:var(--danger); }
 .c-medium { color:var(--warn); } .c-low { color:var(--ok); } .c-acc { color:var(--purple); }
 
 /* ── MAIN ── */
@@ -129,6 +129,7 @@ body {
   color:var(--sub); cursor:pointer; transition:all .15s;
 }
 .filter-btn.active,.filter-btn:hover { border-color:var(--accent); color:var(--accent); }
+.filter-btn.f-critical.active { border-color:#c084fc; color:#c084fc; }
 .filter-btn.f-high.active   { border-color:var(--danger); color:var(--danger); }
 .filter-btn.f-medium.active { border-color:var(--warn);   color:var(--warn); }
 .filter-btn.f-low.active    { border-color:var(--ok);     color:var(--ok); }
@@ -156,6 +157,7 @@ td.fb-col   { width:10%; text-align:center; }
 td.time-col { width:12%; color:var(--sub); }
 
 .badge { display:inline-block; font-size:.54rem; padding:2px 6px; border-radius:2px; letter-spacing:1.5px; font-weight:700; }
+.badge-critical { background:rgba(180,0,255,.18);  color:#c084fc; border:1px solid rgba(180,0,255,.4); }
 .badge-high   { background:rgba(255,59,92,.15);  color:var(--danger); border:1px solid rgba(255,59,92,.3); }
 .badge-medium { background:rgba(255,149,0,.12);  color:var(--warn);   border:1px solid rgba(255,149,0,.3); }
 .badge-low    { background:rgba(0,230,118,.08);  color:var(--ok);     border:1px solid rgba(0,230,118,.25); }
@@ -206,13 +208,17 @@ td.time-col { width:12%; color:var(--sub); }
   padding:8px 10px; margin-bottom:6px; animation:slideIn .3s ease;
 }
 @keyframes slideIn { from{opacity:0;transform:translateX(8px);} }
+.alert-card.critical { background:rgba(180,0,255,.08); border-color:rgba(180,0,255,.3); border-left-color:#c084fc; }
 .alert-card.medium { background:rgba(255,149,0,.05); border-color:rgba(255,149,0,.2); border-left-color:var(--warn); }
+.alert-card.low { background:rgba(0,230,118,.04); border-color:rgba(0,230,118,.15); border-left-color:var(--ok); }
 .alert-top { display:flex; justify-content:space-between; margin-bottom:4px; }
 .alert-src  { font-family:var(--mono); font-size:.58rem; color:var(--sub); }
 .alert-time { font-family:var(--mono); font-size:.56rem; color:var(--sub); }
 .alert-log  { font-family:var(--mono); font-size:.64rem; color:var(--text); line-height:1.5; word-break:break-all; }
 .alert-score { font-family:var(--mono); font-size:.58rem; color:var(--danger); margin-top:3px; }
+.alert-card.critical .alert-score { color:#c084fc; }
 .alert-card.medium .alert-score { color:var(--warn); }
+.alert-card.low .alert-score { color:var(--ok); }
 
 /* ── COLLECTOR BAR ── */
 .collector-bar {
@@ -293,11 +299,12 @@ td.time-col { width:12%; color:var(--sub); }
 
 <!-- STATS -->
 <div class="stats-row">
-  <div class="stat"><span class="stat-label">// Total Events</span><span class="stat-value c-total"  id="s-total">—</span></div>
-  <div class="stat"><span class="stat-label">// High Alerts</span><span class="stat-value c-high"   id="s-high">—</span></div>
-  <div class="stat"><span class="stat-label">// Medium</span><span class="stat-value c-medium" id="s-medium">—</span></div>
-  <div class="stat"><span class="stat-label">// Low / Normal</span><span class="stat-value c-low"    id="s-low">—</span></div>
-  <div class="stat"><span class="stat-label">// Model Accuracy</span><span class="stat-value c-acc"    id="s-acc">—</span></div>
+  <div class="stat"><span class="stat-label">// Total Events</span><span class="stat-value c-total"    id="s-total">—</span></div>
+  <div class="stat"><span class="stat-label">// Critical</span><span class="stat-value c-critical" id="s-critical">—</span></div>
+  <div class="stat"><span class="stat-label">// High Alerts</span><span class="stat-value c-high"     id="s-high">—</span></div>
+  <div class="stat"><span class="stat-label">// Medium</span><span class="stat-value c-medium"   id="s-medium">—</span></div>
+  <div class="stat"><span class="stat-label">// Low / Normal</span><span class="stat-value c-low"      id="s-low">—</span></div>
+  <div class="stat"><span class="stat-label">// Model Accuracy</span><span class="stat-value c-acc"      id="s-acc">—</span></div>
 </div>
 
 <!-- MAIN -->
@@ -315,10 +322,11 @@ td.time-col { width:12%; color:var(--sub); }
       <div class="table-header">
         <span class="section-title" id="tab-title">// Alert Feed</span>
         <div class="filter-row">
-          <button class="filter-btn active"   onclick="setFilter('ALL',this)">ALL</button>
-          <button class="filter-btn f-high"   onclick="setFilter('HIGH',this)">HIGH</button>
-          <button class="filter-btn f-medium" onclick="setFilter('MEDIUM',this)">MED</button>
-          <button class="filter-btn f-low"    onclick="setFilter('LOW',this)">LOW</button>
+          <button class="filter-btn active"      onclick="setFilter('ALL',this)">ALL</button>
+          <button class="filter-btn f-critical" onclick="setFilter('CRITICAL',this)">CRIT</button>
+          <button class="filter-btn f-high"     onclick="setFilter('HIGH',this)">HIGH</button>
+          <button class="filter-btn f-medium"   onclick="setFilter('MEDIUM',this)">MED</button>
+          <button class="filter-btn f-low"      onclick="setFilter('LOW',this)">LOW</button>
         </div>
       </div>
       <div class="tbl-scroll">
@@ -475,8 +483,8 @@ const chart = new Chart(ctx, {
     plugins:{ legend:{display:false} },
     scales:{
       x:{display:false},
-      y:{ min:-0.2, max:0.4,
-        ticks:{color:'#4a6080',font:{family:'Share Tech Mono',size:9},stepSize:.2},
+      y:{ min:0, max:10,
+        ticks:{color:'#4a6080',font:{family:'Share Tech Mono',size:9},stepSize:2},
         grid:{color:'rgba(26,37,64,.5)'}
       }
     }
@@ -484,7 +492,7 @@ const chart = new Chart(ctx, {
 });
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
-const lvlColor = l => l==='HIGH'?'#ff3b5c':l==='MEDIUM'?'#ff9500':l==='LOW'?'#00e676':'#4a6080';
+const lvlColor = l => l==='CRITICAL'?'#c084fc':l==='HIGH'?'#ff3b5c':l==='MEDIUM'?'#ff9500':l==='LOW'?'#00e676':'#4a6080';
 const lvlBadge = l => l
   ? `<span class="badge badge-${l.toLowerCase()}">${l}</span>`
   : `<span class="badge badge-none">—</span>`;
@@ -514,13 +522,23 @@ function normalise(raw) {
   return raw.map(r=>{
     const hasScore = r.anomaly_score !== undefined;
     const rawScore = hasScore ? r.anomaly_score : (r.score !== undefined ? r.score : null);
-    // Higher displayed score = more anomalous. Raw events without a score show '—'.
-    // Windows model scores ~0.04–0.33; map so score=0.10 → ~1.0, score=0.33 → ~0.0
-    const dispScore = rawScore !== null
-      ? (rawScore >= 0
-          ? Math.max(0, Math.min(1, (0.15 - rawScore) / 0.15))   // Windows model (positive scores)
-          : Math.max(0, Math.min(1, -rawScore * 10)))              // HDFS model (negative scores)
-      : null;
+    // Priority → representative CVSS midpoint
+    const PRIORITY_CVSS = { CRITICAL: 9.5, HIGH: 7.5, MEDIUM: 5.0, LOW: 2.0 };
+    // Minimum cvss value expected for each priority (used to validate backend value)
+    const PRIORITY_MIN  = { CRITICAL: 9.0, HIGH: 7.0, MEDIUM: 4.0, LOW: 0.0 };
+    const pLabel = r.priority || r.level || r.severity || null;
+    // Use cvss_score from backend only if it's consistent with the priority label
+    const cvssValid = (r.cvss_score !== undefined && r.cvss_score !== null)
+      && (!pLabel || r.cvss_score >= (PRIORITY_MIN[pLabel] ?? 0));
+    const dispScore = cvssValid
+      ? r.cvss_score
+      : pLabel
+        ? (PRIORITY_CVSS[pLabel] ?? null)
+        : rawScore !== null
+          ? (rawScore >= 0
+              ? Math.max(0, Math.min(10, (0.10 - rawScore) / 0.10 * 10))
+              : Math.max(0, Math.min(10, -rawScore * 100)))
+          : null;
     const logText = (r.threat_categories && r.threat_categories.length)
       ? r.threat_categories.join(', ')
       : (r.description||r.message||r.log||r.event||r.raw||JSON.stringify(r));
@@ -530,7 +548,7 @@ function normalise(raw) {
       id:       r.block_id||r.id||'',
       log:      logText,
       source:   r.source||r.host||'backend',
-      score:    dispScore !== null ? dispScore.toFixed(3) : '—',
+      score:    dispScore !== null ? dispScore.toFixed(1) : '—',
       rawScore: rawScore !== null ? rawScore : 0,
       level:    level,
       label:    r.label||'',
@@ -646,7 +664,7 @@ function renderTable() {
 // ── Side alerts ───────────────────────────────────────────────────────────
 function renderSideAlerts() {
   const panel = document.getElementById('alerts-panel');
-  const alerts = allAlerts.filter(r=>r.level==='HIGH'||r.level==='MEDIUM'||r.level==='LOW').slice(0, 200);
+  const alerts = allAlerts.filter(r=>r.level==='CRITICAL'||r.level==='HIGH'||r.level==='MEDIUM'||r.level==='LOW').slice(0, 200);
   document.getElementById('alert-count').textContent = alerts.length;
   // Only prepend alerts we haven't rendered yet — avoids flash on every refresh
   const newAlerts = alerts.filter(r => {
@@ -657,7 +675,7 @@ function renderSideAlerts() {
   });
   newAlerts.forEach(r=>{
     const div=document.createElement('div');
-    div.className=`alert-card ${r.level==='MEDIUM'?'medium':r.level==='LOW'?'low':''}`;
+    div.className=`alert-card ${r.level==='CRITICAL'?'critical':r.level==='MEDIUM'?'medium':r.level==='LOW'?'low':''}`;
     div.innerHTML=`
       <div class="alert-top">
         <span class="alert-src">${r.source}</span>
@@ -681,10 +699,11 @@ function updateChart() {
 // ── Stats ─────────────────────────────────────────────────────────────────
 function updateStats(status, metrics) {
   if (status&&!status.error) {
-    document.getElementById('s-total').textContent  = status.total_events??status.total??allRows.length;
-    document.getElementById('s-high').textContent   = status.high_alerts??status.high??allRows.filter(r=>r.level==='HIGH').length;
-    document.getElementById('s-medium').textContent = status.medium_alerts??status.medium??allRows.filter(r=>r.level==='MEDIUM').length;
-    document.getElementById('s-low').textContent    = status.low_alerts??status.low??allRows.filter(r=>r.level==='LOW').length;
+    document.getElementById('s-total').textContent    = status.total_events??status.total??allRows.length;
+    document.getElementById('s-critical').textContent = status.critical_alerts??allRows.filter(r=>r.level==='CRITICAL').length;
+    document.getElementById('s-high').textContent     = status.high_alerts??status.high??allRows.filter(r=>r.level==='HIGH').length;
+    document.getElementById('s-medium').textContent   = status.medium_alerts??status.medium??allRows.filter(r=>r.level==='MEDIUM').length;
+    document.getElementById('s-low').textContent      = status.low_alerts??status.low??allRows.filter(r=>r.level==='LOW').length;
   }
   if (metrics&&!metrics.error) {
     // Backend returns evaluation_report: { metrics: { accuracy: 0.961, ... } }
