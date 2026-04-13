@@ -25,6 +25,9 @@ import traceback
 import logging
 logging.basicConfig(level=logging.INFO)
 
+from dotenv import load_dotenv
+load_dotenv()   # loads .env from the current working directory
+
 from flask import Flask, request, jsonify, render_template, session, redirect, url_for
 from functools import wraps
 import requests as req
