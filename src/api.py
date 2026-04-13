@@ -45,6 +45,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import AsyncGenerator
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
@@ -101,10 +103,26 @@ def _get_ingest_model():
 # APP SETUP
 # ══════════════════════════════════════════════════════════════════════════════
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Start background services on startup."""
+    from notification import start_notifier
+    notifier_thread = threading.Thread(
+        target  = start_notifier,
+        daemon  = True,
+        name    = "notifier",
+        kwargs  = {"alerts_file": ALERTS_FILE, "poll_interval": 2},
+    )
+    notifier_thread.start()
+    logger.info("Notification service started (thread: %s).", notifier_thread.name)
+    yield   # app runs here
+
+
 app = FastAPI(
     title       = "Log Sentinel AI",
     description = "Real-time log anomaly detection API",
     version     = "1.0.0",
+    lifespan    = lifespan,
 )
 
 # Allow the HTML/CSS/JS frontend to call the API from any origin
@@ -793,28 +811,6 @@ def retrain_status():
     return _retrain_status
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# STARTUP EVENT — runs once in the worker process only
-# ══════════════════════════════════════════════════════════════════════════════
-
-@app.on_event("startup")
-async def on_startup():
-    """
-    Start the notification service exactly once when the API worker starts.
-    Using the FastAPI startup event instead of module-level code ensures
-    this only runs in the actual worker process, not in uvicorn's reloader
-    process — which is what caused the triple-start you saw.
-    """
-    from notification import start_notifier   # noqa: E402 — local import to avoid circular
-
-    notifier_thread = threading.Thread(
-        target     = start_notifier,
-        daemon     = True,
-        name       = "notifier",
-        kwargs     = {"alerts_file": ALERTS_FILE, "poll_interval": 2},
-    )
-    notifier_thread.start()
-    logger.info("Notification service started (thread: %s).", notifier_thread.name)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
