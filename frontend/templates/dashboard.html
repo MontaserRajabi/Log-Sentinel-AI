@@ -293,6 +293,39 @@ td.time-col { width:10%; color:var(--sub); }
 ::-webkit-scrollbar { width:4px; }
 ::-webkit-scrollbar-track { background:transparent; }
 ::-webkit-scrollbar-thumb { background:var(--border); }
+
+/* ── MACHINES PANEL ── */
+.machines-wrap { position:relative; }
+.machines-panel {
+  display:none; position:absolute; top:calc(100% + 8px); left:0;
+  background:var(--panel2); border:1px solid var(--border); border-radius:3px;
+  min-width:220px; z-index:200; padding:6px 0;
+  box-shadow:0 8px 32px rgba(0,0,0,.5);
+}
+.machines-panel.open { display:block; }
+.machine-item {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:6px 12px; font-family:var(--mono); font-size:.65rem;
+  border-bottom:1px solid var(--border); gap:8px;
+}
+.machine-item:last-child { border-bottom:none; }
+.machine-name { color:var(--text); flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.machine-badge { font-size:.55rem; padding:2px 6px; border-radius:2px; letter-spacing:1px; font-weight:700; }
+.machine-badge.online  { background:rgba(0,230,118,.12); color:var(--ok);     border:1px solid rgba(0,230,118,.3); }
+.machine-badge.offline { background:rgba(255,59,92,.1);  color:var(--danger); border:1px solid rgba(255,59,92,.25); }
+.machine-seen { font-size:.55rem; color:var(--sub); white-space:nowrap; }
+
+/* ── USERS MODAL — role badges ── */
+.role-badge { font-size:.55rem; padding:1px 6px; border-radius:2px; letter-spacing:1px; margin-left:6px; }
+.role-admin { background:rgba(0,212,255,.12); color:var(--accent); border:1px solid rgba(0,212,255,.3); }
+.role-user  { background:rgba(74,96,128,.15); color:var(--sub);    border:1px solid var(--border); }
+.role-select {
+  font-family:var(--mono); font-size:.6rem;
+  background:var(--panel2); color:var(--sub);
+  border:1px solid var(--border); border-radius:2px;
+  padding:2px 5px; cursor:pointer; outline:none;
+}
+.role-select:focus { border-color:var(--accent); }
 </style>
 </head>
 <body>
@@ -303,7 +336,10 @@ td.time-col { width:10%; color:var(--sub); }
     <span style="font-size:1.25rem;filter:drop-shadow(0 0 8px var(--accent))">🛡</span>
     <h1>Log <span>Sentinel</span> AI</h1>
     <span class="badge-live">● LIVE</span>
-    <span class="backend-status" id="backend-status">⬤ BACKEND</span>
+    <div class="machines-wrap" id="machines-wrap">
+      <span class="backend-status" id="backend-status" onclick="toggleMachinesPanel()" style="cursor:pointer" title="Click to see machine details">⬤ MACHINES</span>
+      <div class="machines-panel" id="machines-panel"></div>
+    </div>
   </div>
   <div class="topbar-right">
     <button class="btn-sm btn-theme" id="theme-btn" onclick="toggleTheme()" title="Toggle light/dark mode">🌙</button>
@@ -311,7 +347,8 @@ td.time-col { width:10%; color:var(--sub); }
     <button class="btn-sm btn-purple"   onclick="openRetrain()">🔁 Update Model</button>
     <button class="btn-sm btn-warn"     onclick="submitAllFeedback()">📤 Submit Feedback</button>
     <div class="divider"></div>
-    <button class="btn-sm btn-outline"  onclick="openAdmins()">👥 Admins</button>
+    <button class="btn-sm btn-outline"  onclick="openAdmins()">👥 Users</button>
+    <button class="btn-sm btn-outline"  onclick="location.href='/profile'">⚙ Profile</button>
     <button class="btn-sm btn-danger"   onclick="location.href='/logout'">Logout</button>
   </div>
 </header>
@@ -438,11 +475,11 @@ td.time-col { width:10%; color:var(--sub); }
   </div>
 </div>
 
-<!-- ══ ADMINS MODAL ══ -->
+<!-- ══ USERS MODAL ══ -->
 <div class="overlay" id="adm-overlay">
   <div class="modal">
     <div class="modal-head">
-      <h2>👥 Admin Accounts</h2>
+      <h2>👥 User Accounts</h2>
       <button class="modal-close" onclick="closeModal('adm-overlay')">✕</button>
     </div>
     <div class="modal-body">
@@ -450,6 +487,10 @@ td.time-col { width:10%; color:var(--sub); }
       <div class="m-input-row">
         <input class="m-input" id="adm-user" placeholder="Username"/>
         <input class="m-input" id="adm-pass" placeholder="Password" type="password"/>
+        <select class="m-input" id="adm-role" style="flex:0 0 90px">
+          <option value="user">user</option>
+          <option value="admin">admin</option>
+        </select>
         <button class="btn-sm btn-accent" onclick="addAdmin()">Add</button>
       </div>
     </div>
@@ -749,6 +790,15 @@ function updateStats(status, metrics) {
     document.getElementById('s-high').textContent     = status.high_alerts??status.high??allRows.filter(r=>r.level==='HIGH').length;
     document.getElementById('s-medium').textContent   = status.medium_alerts??status.medium??allRows.filter(r=>r.level==='MEDIUM').length;
     document.getElementById('s-low').textContent      = status.low_alerts??status.low??allRows.filter(r=>r.level==='LOW').length;
+    // Sync collector status indicator with backend state
+    const el = document.getElementById('collector-status');
+    if (status.collector_running) {
+      el.textContent = '⬤ Collector: RUNNING';
+      el.className   = 'collector-status running';
+    } else {
+      el.textContent = '⬤ Collector: STOPPED';
+      el.className   = 'collector-status';
+    }
   }
   if (metrics&&!metrics.error) {
     // Backend returns evaluation_report: { metrics: { accuracy: 0.961, ... } }
@@ -757,31 +807,128 @@ function updateStats(status, metrics) {
   }
 }
 
-function setBackendStatus(online) {
-  const el=document.getElementById('backend-status');
-  el.textContent = online?'⬤ BACKEND ONLINE':'⬤ BACKEND OFFLINE';
-  el.className   = 'backend-status '+(online?'online':'offline');
+// ── Machine status ────────────────────────────────────────────────────────
+// Build statuses from health cache (frontend clock) merged with event-seen data.
+// Health data is primary — immune to backend clock drift.
+function computeMachineStatuses(events, healthMachines) {
+  const THRESHOLD_MS = 15 * 60 * 1000;
+  const now = Date.now();
+  const result = {};
+
+  // Seed from health cache first (most reliable)
+  if (healthMachines && typeof healthMachines === 'object') {
+    Object.entries(healthMachines).forEach(([machine, info]) => {
+      const ts = info.last_seen ? new Date(info.last_seen).getTime() : 0;
+      result[machine] = { machine, ts, online: info.online,
+                          lastSeen: ts ? new Date(ts).toLocaleTimeString() : '—' };
+    });
+  }
+
+  // Add any machines seen in events that aren't in health cache
+  events.forEach(a => {
+    if (a.machine && !result[a.machine] && a.time) {
+      const ts = new Date(a.time).getTime();
+      if (!isNaN(ts))
+        result[a.machine] = { machine: a.machine, ts,
+                               online: (now - ts) < THRESHOLD_MS,
+                               lastSeen: new Date(ts).toLocaleTimeString() };
+    }
+  });
+
+  return Object.values(result).sort((x,y) => (y.online - x.online) || (y.ts - x.ts));
 }
+
+function updateMachinesStatus(statuses, backendOnline) {
+  const el = document.getElementById('backend-status');
+  if (!backendOnline) {
+    el.textContent = '⬤ BACKEND OFFLINE';
+    el.className   = 'backend-status offline';
+    document.getElementById('machines-panel').innerHTML = '';
+    return;
+  }
+  const onlineCount = statuses.filter(s => s.online).length;
+  const total = statuses.length;
+  el.textContent = total > 0
+    ? `⬤ ${onlineCount}/${total} MACHINE${total===1?'':'S'}`
+    : '⬤ NO MACHINES';
+  el.className = 'backend-status ' + (onlineCount > 0 ? 'online' : total > 0 ? 'offline' : '');
+
+  const panel = document.getElementById('machines-panel');
+  if (!statuses.length) {
+    panel.innerHTML = '<div class="machine-item" style="color:var(--sub)">No machines seen yet</div>';
+    return;
+  }
+  panel.innerHTML = statuses.map(s => `
+    <div class="machine-item">
+      <span class="machine-name" title="${s.machine}">${s.machine.split('.')[0]}</span>
+      <span class="machine-seen">${s.lastSeen}</span>
+      <span class="machine-badge ${s.online?'online':'offline'}">${s.online?'ONLINE':'OFFLINE'}</span>
+    </div>`).join('');
+}
+
+function toggleMachinesPanel() {
+  document.getElementById('machines-panel').classList.toggle('open');
+}
+// Close panel when clicking outside
+document.addEventListener('click', e => {
+  if (!document.getElementById('machines-wrap').contains(e.target)) {
+    document.getElementById('machines-panel').classList.remove('open');
+  }
+});
+
+// ── Browser push notifications ────────────────────────────────────────────
+let _notifReady   = false;
+let _notifSeenIds = new Set();
+
+function _initNotifications() {
+  if (!('Notification' in window)) return;
+  if (Notification.permission === 'granted') { _notifReady = true; return; }
+  if (Notification.permission !== 'denied') {
+    Notification.requestPermission().then(p => { _notifReady = (p === 'granted'); });
+  }
+}
+
+function _notifyNewAlerts(alerts) {
+  if (!_notifReady) return;
+  const urgent = alerts.filter(a =>
+    (a.level === 'CRITICAL' || a.level === 'HIGH') && a.id && !_notifSeenIds.has(a.id)
+  );
+  urgent.forEach(a => {
+    _notifSeenIds.add(a.id);
+    const desc = a.log ? a.log.slice(0, 80) : 'Threat detected on ' + (a.machine || 'unknown machine');
+    new Notification(`🚨 ${a.level} Alert — Log Sentinel AI`, {
+      body: desc,
+      tag:  a.id,
+    });
+  });
+}
+
+_initNotifications();
 
 // ── Main refresh ──────────────────────────────────────────────────────────
 async function refresh() {
   const endpoint = currentTab==='alerts'?'/proxy/alerts?limit=500':'/proxy/events?limit=500';
   try {
-    const [rowsRes,alertsRes,statusRes,metricsRes,machinesRes] = await Promise.all([
+    const [rowsRes,alertsRes,statusRes,metricsRes,machinesRes,eventsRes,healthRes] = await Promise.all([
       fetch(endpoint), fetch('/proxy/alerts?limit=500'), fetch('/proxy/status'),
       fetch('/proxy/metrics'), fetch('/proxy/alerts/machines'),
+      fetch('/proxy/events?limit=200'), fetch('/api/health/machines'),
     ]);
-    setBackendStatus(rowsRes.ok);
     const rawRows    = await rowsRes.json();
     const rawAlerts  = alertsRes.ok  ? await alertsRes.json()  : rawRows;
     const statusD    = statusRes.ok   ? await statusRes.json()  : {};
     const metricsD   = metricsRes.ok  ? await metricsRes.json() : {};
     const machinesD  = machinesRes.ok ? await machinesRes.json(): {};
+    const rawEvents  = eventsRes.ok   ? await eventsRes.json()  : rawRows;
+    const healthD    = healthRes.ok   ? await healthRes.json()  : {};
     allRows = normalise(rawRows);
     allAlerts = normalise(rawAlerts);
     if (machinesD.machines) updateMachineDropdown(machinesD.machines);
+    const machineStatuses = computeMachineStatuses(normalise(rawEvents), healthD);
+    updateMachinesStatus(machineStatuses, rowsRes.ok);
+    _notifyNewAlerts(allAlerts);
     renderTable(); renderSideAlerts(); updateChart(); updateStats(statusD,metricsD);
-  } catch(e) { setBackendStatus(false); }
+  } catch(e) { updateMachinesStatus([], false); }
 }
 
 // ── Theme toggle ──────────────────────────────────────────────────────────
@@ -926,30 +1073,68 @@ async function saveTemplates() {
   toast('Templates saved.','ok');
 }
 
-// ── Admins ─────────────────────────────────────────────────────────────────
+// ── Users/Admins ─────────────────────────────────────────────────────────────────
 async function openAdmins() {
   document.getElementById('adm-overlay').classList.add('open');
-  const res=await fetch('/api/admins'); const users=await res.json();
-  const ul=document.getElementById('adm-list'); ul.innerHTML='';
-  users.forEach(u=>addAdmItem(u));
+  const res = await fetch('/api/admins/list');
+  const users = res.ok ? await res.json() : [];
+  const ul = document.getElementById('adm-list'); ul.innerHTML = '';
+  users.forEach(u => addAdmItem(u.username, u.role));
 }
-function addAdmItem(u) {
-  const li=document.createElement('li'); li.dataset.user=u;
-  li.innerHTML=`<span>${u}</span><button class="m-del" onclick="deleteAdmin('${u}',this)">✕</button>`;
+function addAdmItem(username, role='user') {
+  const li = document.createElement('li'); li.dataset.user = username;
+  const roleBadge = role === 'admin'
+    ? `<span class="role-badge role-admin">admin</span>`
+    : `<span class="role-badge role-user">user</span>`;
+  li.innerHTML = `
+    <span style="display:flex;align-items:center;gap:6px;flex:1;">
+      <span>${username}</span>${roleBadge}
+    </span>
+    <select class="role-select" onchange="changeRole('${username}',this)" title="Change role">
+      <option value="user"  ${role==='user' ?'selected':''}>user</option>
+      <option value="admin" ${role==='admin'?'selected':''}>admin</option>
+    </select>
+    <button class="m-del" onclick="deleteAdmin('${username}',this)" title="Delete user">✕</button>`;
   document.getElementById('adm-list').appendChild(li);
 }
-async function addAdmin() {
-  const u=document.getElementById('adm-user').value.trim();
-  const p=document.getElementById('adm-pass').value;
-  if(!u||!p) return;
-  const res=await fetch('/api/admins',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u,password:p})});
-  if(res.ok){ addAdmItem(u); document.getElementById('adm-user').value=''; document.getElementById('adm-pass').value=''; toast(`Admin "${u}" added.`,'ok'); }
-  else{ const d=await res.json(); toast(d.error,'err'); }
+async function changeRole(username, sel) {
+  const role = sel.value;
+  const res = await fetch(`/api/admins/${username}/role`, {
+    method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({role})
+  });
+  if (res.ok) {
+    toast(`${username} is now "${role}".`, 'ok');
+    // Refresh the list to update badges
+    openAdmins();
+  } else {
+    toast('Failed to update role.', 'err');
+    // Reload to reset the select
+    openAdmins();
+  }
 }
-async function deleteAdmin(username,btn) {
-  if(!confirm(`Delete admin "${username}"?`)) return;
-  const res=await fetch(`/api/admins/${username}`,{method:'DELETE'});
-  if(res.ok){ btn.closest('li').remove(); toast(`Admin "${username}" deleted.`,'ok'); }
+async function addAdmin() {
+  const u = document.getElementById('adm-user').value.trim();
+  const p = document.getElementById('adm-pass').value;
+  const r = document.getElementById('adm-role').value;
+  if (!u || !p) return;
+  const res = await fetch('/api/admins', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({username:u, password:p, role:r})
+  });
+  if (res.ok) {
+    addAdmItem(u, r);
+    document.getElementById('adm-user').value = '';
+    document.getElementById('adm-pass').value = '';
+    toast(`User "${u}" added as ${r}.`, 'ok');
+  } else {
+    const d = await res.json();
+    toast(d.error, 'err');
+  }
+}
+async function deleteAdmin(username, btn) {
+  if (!confirm(`Delete user "${username}"?`)) return;
+  const res = await fetch(`/api/admins/${username}`, {method:'DELETE'});
+  if (res.ok) { btn.closest('li').remove(); toast(`User "${username}" deleted.`, 'ok'); }
 }
 
 function closeModal(id){ document.getElementById(id).classList.remove('open'); }

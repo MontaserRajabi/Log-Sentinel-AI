@@ -72,11 +72,39 @@ NOTIFY_LOG_FILE  = PROJECT_ROOT / "data" / "staging" / "notification_log.jsonl"
 
 EMAIL_ENABLED    = os.getenv("NOTIFY_EMAIL_ENABLED", "false").lower() == "true"
 EMAIL_FROM       = os.getenv("NOTIFY_EMAIL_FROM", "")
-EMAIL_TO         = os.getenv("NOTIFY_EMAIL_TO", "")
+EMAIL_TO         = os.getenv("NOTIFY_EMAIL_TO", "")   # fallback admin email
 EMAIL_HOST       = os.getenv("NOTIFY_EMAIL_HOST", "smtp.gmail.com")
 EMAIL_PORT       = int(os.getenv("NOTIFY_EMAIL_PORT", 587))
 EMAIL_USER       = os.getenv("NOTIFY_EMAIL_USER", "")
 EMAIL_PASS       = os.getenv("NOTIFY_EMAIL_PASS", "")
+
+# ── Cosmos DB user lookup (to email the right user per machine) ────────────
+def _get_emails_for_machine(machine: str) -> list[str]:
+    """
+    Look up which users are assigned to this machine and return their emails.
+    Falls back to the global NOTIFY_EMAIL_TO if no users are assigned.
+    """
+    if not machine:
+        return [EMAIL_TO] if EMAIL_TO else []
+    try:
+        conn = os.getenv("COSMOS_CONNECTION_STRING", "")
+        if not conn:
+            return [EMAIL_TO] if EMAIL_TO else []
+        from azure.cosmos import CosmosClient
+        client    = CosmosClient.from_connection_string(conn)
+        container = client.get_database_client("sentinel").get_container_client("users")
+        machine_lower = machine.strip().lower()
+        items = list(container.query_items(
+            "SELECT * FROM users u WHERE u.source_machine = @m",
+            parameters=[{"name": "@m", "value": machine_lower}],
+            enable_cross_partition_query=True,
+        ))
+        emails = [item["email"] for item in items if item.get("email")]
+        if emails:
+            return emails
+    except Exception as e:
+        logger.warning("Cosmos user lookup failed: %s", e)
+    return [EMAIL_TO] if EMAIL_TO else []
 
 MIN_PRIORITY     = os.getenv("NOTIFY_MIN_PRIORITY", "MEDIUM").upper()   # CRITICAL | HIGH | MEDIUM
 COOLDOWN_SEC     = int(os.getenv("NOTIFY_COOLDOWN_SEC", 60))
@@ -198,20 +226,28 @@ def play_alert_sound(priority: str) -> None:
 # EMAIL NOTIFICATION
 # ══════════════════════════════════════════════════════════════════════════════
 
-def send_email_notification(alert: dict) -> bool:
+def send_email_notification(alert: dict, recipients: list[str] | None = None) -> bool:
     """
-    Send an email alert to the administrator via SMTP.
-    Configure credentials in .env (see module docstring).
-    Returns True if the email was sent successfully.
+    Send an email alert via SMTP.
+    recipients: list of email addresses — defaults to users assigned to the
+                alert's source_machine, falling back to NOTIFY_EMAIL_TO.
+    Returns True if at least one email was sent successfully.
     """
     if not EMAIL_ENABLED:
         return False
 
-    if not all([EMAIL_FROM, EMAIL_TO, EMAIL_USER, EMAIL_PASS]):
+    if not all([EMAIL_FROM, EMAIL_USER, EMAIL_PASS]):
         logger.warning(
             "Email notification enabled but credentials incomplete. "
-            "Set NOTIFY_EMAIL_FROM/TO/USER/PASS in .env"
+            "Set NOTIFY_EMAIL_FROM/USER/PASS in .env"
         )
+        return False
+
+    if recipients is None:
+        recipients = _get_emails_for_machine(alert.get("source_machine", ""))
+
+    if not recipients:
+        logger.warning("No email recipients found for this alert.")
         return False
 
     threats    = ", ".join(alert.get("threat_categories", [])) or "unknown"
@@ -278,20 +314,25 @@ def send_email_notification(alert: dict) -> bool:
     </body></html>
     """
 
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"]    = EMAIL_FROM
-    msg["To"]      = EMAIL_TO
-    msg.attach(MIMEText(body_html, "html"))
-
     try:
+        sent = False
         with smtplib.SMTP(EMAIL_HOST, EMAIL_PORT, timeout=10) as server:
             server.ehlo()
             server.starttls()
             server.login(EMAIL_USER, EMAIL_PASS)
-            server.sendmail(EMAIL_FROM, EMAIL_TO, msg.as_string())
-        logger.info("Email alert sent to %s for block %s", EMAIL_TO, block_id)
-        return True
+            for to_addr in recipients:
+                try:
+                    msg = MIMEMultipart("alternative")
+                    msg["Subject"] = subject
+                    msg["From"]    = EMAIL_FROM
+                    msg["To"]      = to_addr
+                    msg.attach(MIMEText(body_html, "html"))
+                    server.sendmail(EMAIL_FROM, to_addr, msg.as_string())
+                    logger.info("Email alert sent to %s for block %s", to_addr, block_id)
+                    sent = True
+                except Exception as exc:
+                    logger.error("Failed to send to %s: %s", to_addr, exc)
+        return sent
     except smtplib.SMTPAuthenticationError:
         logger.error(
             "Email authentication failed. Check NOTIFY_EMAIL_USER/PASS in .env"

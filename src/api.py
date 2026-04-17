@@ -114,8 +114,8 @@ async def lifespan(app: FastAPI):
         kwargs  = {"alerts_file": ALERTS_FILE, "poll_interval": 2},
     )
     notifier_thread.start()
-    logger.info("Notification service started (thread: %s).", notifier_thread.name)
-    yield   # app runs here
+    logger.info("Notification service started.")
+    yield
 
 
 app = FastAPI(
@@ -475,6 +475,7 @@ def get_metrics():
 def get_events(
     limit  : int = Query(200, ge=1, le=2000),
     source : str = Query("",  description="Filter by source e.g. Security, syslog"),
+    machine: str = Query("",  description="Filter by source machine hostname"),
 ):
     """
     Returns recent raw log events collected by log_collector.py.
@@ -484,6 +485,8 @@ def get_events(
 
     if source:
         events = [e for e in events if e.get("source") == source]
+    if machine:
+        events = [e for e in events if e.get("source_machine", "") == machine]
 
     return {
         "total"  : len(events),
@@ -524,6 +527,7 @@ def collector_start(body: CollectorStartRequest = CollectorStartRequest()):
                 threshold    = body.threshold,
                 verbose      = body.verbose,
                 auto_elevate = body.elevate,
+                stop_event   = _collector_stop,
             )
         except Exception as exc:
             logger.error("Collector thread crashed: %s", exc, exc_info=True)

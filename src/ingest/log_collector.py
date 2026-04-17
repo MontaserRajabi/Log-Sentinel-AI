@@ -33,6 +33,7 @@ import logging
 import os
 import platform
 import sys
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -907,6 +908,7 @@ def start_collector(
     verbose      : bool  = False,
     run_once     : bool  = False,
     auto_elevate : bool  = False,
+    stop_event   : "threading.Event | None" = None,
 ) -> None:
     """
     Entry point for the log collection loop.
@@ -943,7 +945,7 @@ def start_collector(
     logger.info("Press Ctrl+C to stop.\n")
 
     try:
-        while True:
+        while not (stop_event and stop_event.is_set()):
             cycle_start = time.time()
             logger.info("── Polling cycle %s ──", datetime.now().strftime("%H:%M:%S"))
 
@@ -960,9 +962,17 @@ def start_collector(
             if run_once:
                 break
 
-            elapsed = time.time() - cycle_start
+            elapsed   = time.time() - cycle_start
             sleep_for = max(0.0, interval - elapsed)
-            time.sleep(sleep_for)
+
+            # Sleep in small chunks so the stop_event is checked promptly
+            chunk = 1.0
+            slept = 0.0
+            while slept < sleep_for:
+                if stop_event and stop_event.is_set():
+                    break
+                time.sleep(min(chunk, sleep_for - slept))
+                slept += chunk
 
     except KeyboardInterrupt:
         logger.info("Collector stopped by user.")

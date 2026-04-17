@@ -1,0 +1,900 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Log Sentinel AI — Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+:root {
+  --bg:      #0a0e17;
+  --panel:   #0f1623;
+  --panel2:  #131d2e;
+  --border:  #1a2540;
+  --accent:  #00d4ff;
+  --accent2: #0066ff;
+  --danger:  #ff3b5c;
+  --warn:    #ff9500;
+  --ok:      #00e676;
+  --purple:  #b388ff;
+  --text:    #c8d8f0;
+  --sub:     #4a6080;
+  --mono:    'Share Tech Mono', monospace;
+  --sans:    'Rajdhani', sans-serif;
+}
+body.light {
+  --bg:      #f0f4f8;
+  --panel:   #ffffff;
+  --panel2:  #e8edf3;
+  --border:  #d0d9e4;
+  --accent:  #0066cc;
+  --accent2: #0044aa;
+  --danger:  #e02040;
+  --warn:    #d97000;
+  --ok:      #00a855;
+  --purple:  #7c3aed;
+  --text:    #1a2540;
+  --sub:     #6b7fa0;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  background:var(--bg); color:var(--text);
+  font-family:var(--sans); height:100vh;
+  display:flex; flex-direction:column; overflow:hidden;
+}
+
+/* ── TOP BAR ── */
+.topbar {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:0 20px; height:52px;
+  background:var(--panel); border-bottom:1px solid var(--border); flex-shrink:0;
+}
+.topbar-left { display:flex; align-items:center; gap:12px; }
+.topbar h1 { font-size:1.05rem; font-weight:700; letter-spacing:3px; text-transform:uppercase; }
+.topbar h1 span { color:var(--accent); }
+.badge-live {
+  font-family:var(--mono); font-size:.6rem; color:var(--ok);
+  border:1px solid var(--ok); border-radius:2px; padding:2px 7px;
+  letter-spacing:2px; animation:blink 2s ease infinite;
+}
+@keyframes blink { 50%{opacity:.4;} }
+
+.machines-wrap { position:relative; }
+.machines-panel {
+  display:none; position:absolute; top:calc(100% + 8px); left:0;
+  background:var(--panel2); border:1px solid var(--border); border-radius:3px;
+  min-width:220px; z-index:200; padding:6px 0;
+  box-shadow:0 8px 32px rgba(0,0,0,.5);
+}
+.machines-panel.open { display:block; }
+.machine-item {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:6px 12px; font-family:var(--mono); font-size:.65rem;
+  border-bottom:1px solid var(--border); gap:8px;
+}
+.machine-item:last-child { border-bottom:none; }
+.machine-name { color:var(--text); flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.machine-badge { font-size:.55rem; padding:2px 6px; border-radius:2px; letter-spacing:1px; font-weight:700; }
+.machine-badge.online  { background:rgba(0,230,118,.12); color:var(--ok);     border:1px solid rgba(0,230,118,.3); }
+.machine-badge.offline { background:rgba(255,59,92,.1);  color:var(--danger); border:1px solid rgba(255,59,92,.25); }
+.machine-seen { font-size:.55rem; color:var(--sub); white-space:nowrap; }
+
+.backend-status {
+  font-family:var(--mono); font-size:.6rem; padding:2px 9px;
+  border-radius:2px; border:1px solid var(--border); color:var(--sub); transition:all .3s;
+}
+.backend-status.online  { color:var(--ok);     border-color:rgba(0,230,118,.4); }
+.backend-status.offline { color:var(--danger); border-color:rgba(255,59,92,.4); }
+
+.topbar-right { display:flex; align-items:center; gap:7px; }
+.btn-sm {
+  font-family:var(--sans); font-size:.75rem; font-weight:600;
+  letter-spacing:1.5px; text-transform:uppercase;
+  padding:5px 13px; border-radius:2px; border:none; cursor:pointer; transition:all .2s;
+  white-space:nowrap;
+}
+.btn-sm:hover { opacity:.85; transform:translateY(-1px); }
+.btn-sm:active { transform:translateY(0); }
+.btn-outline { background:transparent; border:1px solid var(--border); color:var(--sub); }
+.btn-outline:hover { border-color:var(--accent); color:var(--accent); }
+.btn-danger  { background:rgba(255,59,92,.15); color:var(--danger); border:1px solid rgba(255,59,92,.3); }
+.btn-connect { background:rgba(0,230,118,.1); color:var(--ok); border:1px solid rgba(0,230,118,.3); }
+.btn-connect:hover { background:rgba(0,230,118,.2); }
+.btn-theme  { background:transparent; border:1px solid var(--border); color:var(--sub);
+              font-size:.95rem; padding:4px 10px; border-radius:2px; cursor:pointer;
+              transition:all .2s; line-height:1; }
+.btn-theme:hover { border-color:var(--accent); transform:rotate(20deg) scale(1.1); }
+
+.divider { width:1px; height:22px; background:var(--border); margin:0 3px; }
+.user-chip {
+  font-family:var(--mono); font-size:.62rem; color:var(--accent);
+  border:1px solid rgba(0,212,255,.25); border-radius:2px; padding:2px 9px;
+  letter-spacing:1px;
+}
+
+/* ── STATS ── */
+.stats-row {
+  display:grid; grid-template-columns:repeat(5,1fr);
+  gap:1px; background:var(--border); border-bottom:1px solid var(--border); flex-shrink:0;
+}
+.stat { background:var(--panel); padding:9px 12px; display:flex; flex-direction:column; gap:3px; }
+.stat-label { font-family:var(--mono); font-size:.54rem; color:var(--sub); letter-spacing:1.5px; text-transform:uppercase; }
+.stat-value { font-family:var(--mono); font-size:1.3rem; font-weight:700; line-height:1; }
+.c-total { color:var(--accent); } .c-critical { color:#c084fc; } .c-high { color:var(--danger); }
+.c-medium { color:var(--warn); } .c-low { color:var(--ok); }
+
+/* ── MAIN ── */
+.main { display:flex; flex:1; overflow:hidden; gap:1px; background:var(--border); }
+.left { display:flex; flex-direction:column; flex:1; overflow:hidden; gap:1px; background:var(--border); }
+
+/* ── TABS ── */
+.tabs { display:flex; background:var(--panel); border-bottom:1px solid var(--border); flex-shrink:0; }
+.tab-btn {
+  font-family:var(--mono); font-size:.63rem; letter-spacing:2px;
+  padding:10px 18px; background:none; border:none; color:var(--sub);
+  cursor:pointer; border-bottom:2px solid transparent; transition:all .15s;
+}
+.tab-btn:hover { color:var(--text); }
+.tab-btn.active { color:var(--accent); border-bottom-color:var(--accent); }
+
+/* ── TABLE ── */
+.table-wrap { flex:1; overflow:hidden; background:var(--panel); display:flex; flex-direction:column; }
+.table-header {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:7px 14px; border-bottom:1px solid var(--border); flex-shrink:0;
+}
+.section-title { font-family:var(--mono); font-size:.63rem; color:var(--accent); letter-spacing:2px; text-transform:uppercase; }
+.filter-row { display:flex; gap:5px; }
+.filter-btn {
+  font-family:var(--mono); font-size:.6rem; padding:3px 9px;
+  border-radius:2px; border:1px solid var(--border); background:transparent;
+  color:var(--sub); cursor:pointer; transition:all .15s;
+}
+.filter-btn.active,.filter-btn:hover { border-color:var(--accent); color:var(--accent); }
+.filter-btn.f-critical.active { border-color:#c084fc; color:#c084fc; }
+.filter-btn.f-high.active   { border-color:var(--danger); color:var(--danger); }
+.filter-btn.f-medium.active { border-color:var(--warn);   color:var(--warn); }
+.filter-btn.f-low.active    { border-color:var(--ok);     color:var(--ok); }
+#machine-filter {
+  background: rgba(0,212,255,.03);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 4px 10px;
+  color: var(--sub);
+  font-family: var(--mono);
+  font-size: .72rem;
+  letter-spacing: 1px;
+  cursor: pointer;
+  outline: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%234a6080' d='M5 6L0 0h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  padding-right: 24px;
+}
+#machine-filter:focus { border-color: var(--accent); color: var(--text); }
+#machine-filter option { background: #0f1623; color: var(--text); }
+
+.tbl-scroll { flex:1; overflow-y:auto; }
+.tbl-scroll::-webkit-scrollbar { width:4px; }
+.tbl-scroll::-webkit-scrollbar-thumb { background:var(--border); }
+
+table { width:100%; border-collapse:collapse; }
+thead th {
+  position:sticky; top:0; background:var(--panel2);
+  font-family:var(--mono); font-size:.58rem; color:var(--sub);
+  letter-spacing:2px; text-transform:uppercase;
+  padding:7px 11px; text-align:left; border-bottom:1px solid var(--border);
+}
+tbody tr { border-bottom:1px solid rgba(26,37,64,.5); transition:background .1s; }
+tbody tr:hover { background:rgba(0,212,255,.025); }
+td { font-family:var(--mono); font-size:.68rem; padding:5px 11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:0; }
+td.log-col  { width:45%; max-width:300px; color:var(--text); }
+td.src-col  { width:12%; color:var(--sub); }
+td.scr-col  { width:8%;  color:var(--text); text-align:center; }
+td.lvl-col  { width:10%; text-align:center; }
+td.time-col { width:12%; color:var(--sub); }
+
+.badge { display:inline-block; font-size:.54rem; padding:2px 6px; border-radius:2px; letter-spacing:1.5px; font-weight:700; }
+.badge-critical { background:rgba(180,0,255,.18);  color:#c084fc; border:1px solid rgba(180,0,255,.4); }
+.badge-high   { background:rgba(255,59,92,.15);  color:var(--danger); border:1px solid rgba(255,59,92,.3); }
+.badge-medium { background:rgba(255,149,0,.12);  color:var(--warn);   border:1px solid rgba(255,149,0,.3); }
+.badge-low    { background:rgba(0,230,118,.08);  color:var(--ok);     border:1px solid rgba(0,230,118,.25); }
+.badge-none   { background:transparent; color:#4a6080; border:1px solid rgba(74,96,128,.2); }
+
+/* ── CHART ── */
+.chart-wrap {
+  height:140px; background:var(--panel); padding:8px 14px 5px;
+  flex-shrink:0; border-top:1px solid var(--border);
+}
+
+/* ── HEALTH WIDGET ── */
+.health-bar {
+  display:flex; flex-direction:column; gap:8px;
+  padding:10px 13px; background:var(--panel2);
+  border-top:1px solid var(--border); flex-shrink:0;
+}
+.health-label { font-family:var(--mono); font-size:.58rem; color:var(--sub); letter-spacing:1px; }
+#health-widget { display:flex; flex-direction:column; gap:7px; }
+.health-placeholder { font-family:var(--mono); font-size:.6rem; color:var(--sub); font-style:italic; }
+.h-meter { display:flex; align-items:center; gap:7px; }
+.h-meter-lbl { font-family:var(--mono); font-size:.58rem; color:var(--sub); width:30px; letter-spacing:1px; }
+.h-track { flex:1; height:5px; background:rgba(255,255,255,.07); border-radius:3px; overflow:hidden; }
+.h-fill { height:100%; border-radius:3px; transition:width .6s ease; }
+.h-fill.cpu  { background:var(--accent); }
+.h-fill.ram  { background:var(--warn); }
+.h-fill.disk { background:var(--purple); }
+.h-fill.high { background:var(--danger) !important; }
+.h-val { font-family:var(--mono); font-size:.6rem; color:var(--text); width:70px; text-align:right; white-space:nowrap; }
+
+/* ── RIGHT PANEL ── */
+.right { width:260px; flex-shrink:0; background:var(--panel); display:flex; flex-direction:column; overflow:hidden; }
+.right-header {
+  padding:9px 13px; border-bottom:1px solid var(--border); flex-shrink:0;
+  display:flex; align-items:center; justify-content:space-between;
+}
+.alert-count { font-family:var(--mono); font-size:.6rem; color:var(--danger); border:1px solid rgba(255,59,92,.3); border-radius:2px; padding:1px 7px; }
+.alerts-scroll { flex:1; overflow-y:auto; padding:7px; }
+.alerts-scroll::-webkit-scrollbar { width:3px; }
+.alerts-scroll::-webkit-scrollbar-thumb { background:var(--border); }
+.alert-card {
+  background:rgba(255,59,92,.05); border:1px solid rgba(255,59,92,.2);
+  border-left:3px solid var(--danger); border-radius:2px;
+  padding:8px 10px; margin-bottom:6px; animation:slideIn .3s ease;
+}
+@keyframes slideIn { from{opacity:0;transform:translateX(8px);} }
+.alert-card.critical { background:rgba(180,0,255,.08); border-color:rgba(180,0,255,.3); border-left-color:#c084fc; }
+.alert-card.medium { background:rgba(255,149,0,.05); border-color:rgba(255,149,0,.2); border-left-color:var(--warn); }
+.alert-card.low { background:rgba(0,230,118,.04); border-color:rgba(0,230,118,.15); border-left-color:var(--ok); }
+.alert-top { display:flex; justify-content:space-between; margin-bottom:4px; }
+.alert-src  { font-family:var(--mono); font-size:.58rem; color:var(--sub); }
+.alert-time { font-family:var(--mono); font-size:.56rem; color:var(--sub); }
+.alert-log  { font-family:var(--mono); font-size:.64rem; color:var(--text); line-height:1.5; word-break:break-all; }
+.alert-score { font-family:var(--mono); font-size:.58rem; color:var(--danger); margin-top:3px; }
+.alert-card.critical .alert-score { color:#c084fc; }
+.alert-card.medium .alert-score { color:var(--warn); }
+.alert-card.low .alert-score { color:var(--ok); }
+
+/* ── TOAST ── */
+.toast {
+  position:fixed; bottom:24px; left:50%; transform:translateX(-50%) translateY(20px);
+  background:var(--panel2); border:1px solid var(--border); border-radius:3px;
+  font-family:var(--mono); font-size:.75rem; padding:10px 20px;
+  color:var(--text); opacity:0; transition:all .3s; z-index:999; pointer-events:none;
+}
+.toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+.toast.ok   { border-color:rgba(0,230,118,.4); color:var(--ok); }
+.toast.err  { border-color:rgba(255,59,92,.4); color:var(--danger); }
+.toast.info { border-color:rgba(179,136,255,.4); color:var(--purple); }
+
+/* ── PAIR MODAL ── */
+.overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.72); backdrop-filter:blur(4px); z-index:100; align-items:center; justify-content:center; }
+.overlay.open { display:flex; }
+.modal { background:var(--panel); border:1px solid var(--border); border-radius:4px; width:420px; display:flex; flex-direction:column; box-shadow:0 0 60px rgba(0,0,0,.6); animation:fadeUp .25s ease; }
+@keyframes fadeUp { from{opacity:0;transform:translateY(14px);} }
+.modal-head { display:flex; align-items:center; justify-content:space-between; padding:14px 18px; border-bottom:1px solid var(--border); }
+.modal-head h2 { font-size:.88rem; letter-spacing:2px; text-transform:uppercase; }
+.modal-close { background:none; border:none; color:var(--sub); font-size:1.1rem; cursor:pointer; }
+.modal-close:hover { color:var(--danger); }
+.modal-body { padding:20px 18px; }
+.modal-foot { padding:12px 18px; border-top:1px solid var(--border); display:flex; justify-content:flex-end; gap:8px; }
+.pair-input {
+  width:100%; text-align:center; letter-spacing:8px; font-size:1.6rem;
+  font-family:var(--mono); text-transform:uppercase;
+  background:rgba(0,212,255,.04); border:1px solid var(--border);
+  border-radius:3px; padding:14px; color:var(--text); outline:none;
+  transition:border-color .2s;
+}
+.pair-input:focus { border-color:var(--ok); }
+.pair-hint { font-family:var(--mono); font-size:.65rem; color:var(--sub); text-align:center; margin-top:10px; line-height:1.7; }
+.pair-machine { font-family:var(--mono); font-size:.75rem; color:var(--ok); text-align:center; margin-top:12px; display:none; }
+.btn-ok { background:rgba(0,230,118,.15); color:var(--ok); border:1px solid rgba(0,230,118,.3); }
+
+::-webkit-scrollbar { width:4px; }
+::-webkit-scrollbar-track { background:transparent; }
+::-webkit-scrollbar-thumb { background:var(--border); }
+</style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<header class="topbar">
+  <div class="topbar-left">
+    <span style="font-size:1.25rem;filter:drop-shadow(0 0 8px var(--accent))">🛡</span>
+    <h1>Log <span>Sentinel</span> AI</h1>
+    <span class="badge-live">● LIVE</span>
+    <div class="machines-wrap" id="machines-wrap">
+      <span class="backend-status" id="backend-status" onclick="toggleMachinesPanel()" style="cursor:pointer" title="Click to see machine details">⬤ MACHINES</span>
+      <div class="machines-panel" id="machines-panel"></div>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <span class="user-chip" id="user-chip">{{ username }}</span>
+    <button class="btn-sm btn-theme" id="theme-btn" onclick="toggleTheme()" title="Toggle light/dark mode">🌙</button>
+    <div class="divider"></div>
+    <button class="btn-sm btn-connect" id="connect-btn" onclick="openPairModal()">⊕ Connect Machine</button>
+    <button class="btn-sm btn-outline" onclick="location.href='/profile'">⚙ Profile</button>
+    <button class="btn-sm btn-danger"  onclick="location.href='/logout'">Logout</button>
+  </div>
+</header>
+
+<!-- STATS -->
+<div class="stats-row">
+  <div class="stat"><span class="stat-label">// Total Events</span><span class="stat-value c-total"    id="s-total">—</span></div>
+  <div class="stat"><span class="stat-label">// Critical</span><span class="stat-value c-critical" id="s-critical">—</span></div>
+  <div class="stat"><span class="stat-label">// High Alerts</span><span class="stat-value c-high"     id="s-high">—</span></div>
+  <div class="stat"><span class="stat-label">// Medium</span><span class="stat-value c-medium"   id="s-medium">—</span></div>
+  <div class="stat"><span class="stat-label">// Low / Normal</span><span class="stat-value c-low"      id="s-low">—</span></div>
+</div>
+
+<!-- MAIN -->
+<div class="main">
+  <div class="left">
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <button class="tab-btn active" onclick="switchTab('alerts',this)">// ALERTS</button>
+      <button class="tab-btn"        onclick="switchTab('events',this)">// RAW EVENTS</button>
+    </div>
+
+    <!-- Table -->
+    <div class="table-wrap">
+      <div class="table-header">
+        <span class="section-title" id="tab-title">// Alert Feed</span>
+        <div class="filter-row">
+          <button class="filter-btn active"      onclick="setFilter('ALL',this)">ALL</button>
+          <button class="filter-btn f-critical" onclick="setFilter('CRITICAL',this)">CRIT</button>
+          <button class="filter-btn f-high"     onclick="setFilter('HIGH',this)">HIGH</button>
+          <button class="filter-btn f-medium"   onclick="setFilter('MEDIUM',this)">MED</button>
+          <button class="filter-btn f-low"      onclick="setFilter('LOW',this)">LOW</button>
+          <select id="machine-filter" onchange="setMachineFilter(this.value)" title="Filter by machine">
+            <option value="">ALL MACHINES</option>
+          </select>
+        </div>
+      </div>
+      <div class="tbl-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th class="log-col">Description</th>
+              <th class="src-col">Machine</th>
+              <th class="scr-col">Score</th>
+              <th class="lvl-col">Level</th>
+              <th class="time-col">Time</th>
+            </tr>
+          </thead>
+          <tbody id="log-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Chart -->
+    <div class="chart-wrap"><canvas id="scoreChart"></canvas></div>
+  </div>
+
+  <!-- Right: live alerts + system health -->
+  <div class="right">
+    <div class="right-header">
+      <span class="section-title">// Live Alerts</span>
+      <span class="alert-count" id="alert-count">0</span>
+    </div>
+    <div class="alerts-scroll" id="alerts-panel"></div>
+
+    <!-- System Health Widget -->
+    <div class="health-bar">
+      <span class="health-label">// SYSTEM HEALTH</span>
+      <div id="health-widget">
+        <span class="health-placeholder">Waiting for agent…</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ PAIR MACHINE MODAL ══ -->
+<div class="overlay" id="pair-overlay">
+  <div class="modal">
+    <div class="modal-head">
+      <h2>⊕ Connect Machine</h2>
+      <button class="modal-close" onclick="closePairModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <input class="pair-input" id="pair-code" maxlength="6" placeholder="XXXXXX"
+             oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9]/g,'')"
+             onkeydown="if(event.key==='Enter') claimCode()"/>
+      <p class="pair-hint">
+        Run the agent on your machine.<br>
+        It will show a 6-character code in the terminal.<br>
+        Enter it above to connect your machine.
+      </p>
+      <div class="pair-machine" id="pair-machine-result"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn-sm btn-outline" onclick="closePairModal()">Cancel</button>
+      <button class="btn-sm btn-ok" id="pair-submit-btn" onclick="claimCode()">Connect</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+let allRows      = [];
+let allAlerts    = [];
+// Pre-set to the user's assigned machine (from server session)
+let currentMachine = '{{ user_machine }}';
+let currentFilter  = 'ALL';
+let currentTab     = 'alerts';
+const REFRESH_MS   = 5000;
+let renderedAlertIds = new Set();
+
+// ── Toast ──────────────────────────────────────────────────────────────────
+function toast(msg, type='ok', ms=3000) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className   = `toast show ${type}`;
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.className = 'toast', ms);
+}
+
+// ── Chart ──────────────────────────────────────────────────────────────────
+const ctx = document.getElementById('scoreChart').getContext('2d');
+const chart = new Chart(ctx, {
+  type: 'line',
+  data: { labels:[], datasets:[{
+    data:[], borderColor:'#00d4ff', borderWidth:1.5,
+    pointRadius:3, pointBackgroundColor:[],
+    tension:0.3, fill:true, backgroundColor:'rgba(0,212,255,0.04)'
+  }]},
+  options: {
+    responsive:true, maintainAspectRatio:false, animation:false,
+    plugins:{ legend:{display:false} },
+    scales:{
+      x:{display:false},
+      y:{ min:0, max:10,
+        ticks:{color:'#4a6080',font:{family:'Share Tech Mono',size:9},stepSize:2},
+        grid:{color:'rgba(26,37,64,.5)'}
+      }
+    }
+  }
+});
+
+// ── Threat label map — turns category codes into plain English ────────────
+const THREAT_LABELS = {
+  brute_force:          "Multiple failed login attempts",
+  credential_stuffing:  "Password stuffing attack",
+  privilege_esc:        "Unauthorized privilege escalation",
+  lateral_movement:     "Suspicious lateral movement",
+  data_exfiltration:    "Possible data exfiltration",
+  log_tamper:           "Security log tampering",
+  malware:              "Malware behavior detected",
+  ransomware:           "Ransomware-like activity",
+  reconnaissance:       "Network reconnaissance",
+  suspicious_process:   "Suspicious process executed",
+  persistence:          "Malicious persistence detected",
+  injection:            "Process injection attempt",
+  port_scan:            "Port scan detected",
+  dos:                  "Denial-of-service activity",
+  phishing:             "Phishing-related activity",
+  c2:                   "Command & control communication",
+  anomaly:              "Unusual system behavior",
+};
+
+function friendlyDescription(r) {
+  if (r.threats && r.threats.length) {
+    const labels = r.threats.map(t => THREAT_LABELS[t] || t.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()));
+    return labels.join('  •  ');
+  }
+  // Raw log: strip technical prefixes and make readable
+  let raw = r.log || '';
+  raw = raw.replace(/^\[.*?\]\s*/,'').replace(/EventID=\d+\s*/gi,'').replace(/\s+/g,' ').trim();
+  if (raw.length > 120) raw = raw.slice(0, 117) + '…';
+  return raw || '—';
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+const lvlColor = l => l==='CRITICAL'?'#c084fc':l==='HIGH'?'#ff3b5c':l==='MEDIUM'?'#ff9500':l==='LOW'?'#00e676':'#4a6080';
+const lvlBadge = l => l
+  ? `<span class="badge badge-${l.toLowerCase()}">${l}</span>`
+  : `<span class="badge badge-none">—</span>`;
+
+function setFilter(level, btn) {
+  currentFilter = level;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderTable();
+}
+
+function setMachineFilter(machine) {
+  currentMachine = machine;
+  renderTable();
+}
+
+function updateMachineDropdown(machines) {
+  const sel = document.getElementById('machine-filter');
+  // Keep user's assigned machine selected even after dropdown rebuild
+  const active = currentMachine || sel.value;
+  sel.innerHTML = '<option value="">ALL MACHINES</option>';
+  machines.forEach(m => {
+    const opt = document.createElement('option');
+    opt.value = m; opt.textContent = m.split('.')[0]; opt.title = m;
+    if (m === active) opt.selected = true;
+    sel.appendChild(opt);
+  });
+}
+
+function switchTab(tab, btn) {
+  currentTab = tab;
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('tab-title').textContent = tab === 'alerts' ? '// Alert Feed' : '// Raw Events';
+  refresh();
+}
+
+// ── Normalise backend data ────────────────────────────────────────────────
+function normalise(raw) {
+  if (!Array.isArray(raw)) raw = raw.alerts||raw.events||raw.data||[];
+  return raw.map(r => {
+    const hasScore = r.anomaly_score !== undefined;
+    const rawScore = hasScore ? r.anomaly_score : (r.score !== undefined ? r.score : null);
+    const PRIORITY_CVSS = { CRITICAL:9.5, HIGH:7.5, MEDIUM:5.0, LOW:2.0 };
+    const PRIORITY_MIN  = { CRITICAL:9.0, HIGH:7.0, MEDIUM:4.0, LOW:0.0 };
+    const pLabel = r.priority||r.level||r.severity||null;
+    const cvssValid = (r.cvss_score !== undefined && r.cvss_score !== null)
+      && (!pLabel || r.cvss_score >= (PRIORITY_MIN[pLabel] ?? 0));
+    const dispScore = cvssValid
+      ? r.cvss_score
+      : pLabel
+        ? (PRIORITY_CVSS[pLabel] ?? null)
+        : rawScore !== null
+          ? (rawScore >= 0
+              ? Math.max(0, Math.min(10, (0.10 - rawScore) / 0.10 * 10))
+              : Math.max(0, Math.min(10, -rawScore * 100)))
+          : null;
+    const level = r.priority||r.level||r.severity||(hasScore?'LOW':null);
+    const partial = {
+      id:      r.block_id||r.id||'',
+      log:     r.description||r.message||r.log||r.event||r.raw||JSON.stringify(r),
+      source:  r.source||r.host||'backend',
+      machine: r.source_machine||r.source||'',
+      score:   dispScore !== null ? dispScore.toFixed(1) : '—',
+      rawScore:rawScore !== null ? rawScore : 0,
+      level:   level,
+      time:    r.alert_at||r.collected_at||r.timestamp||r.time||'',
+      threats: r.threat_categories||[],
+    };
+    partial.friendly = friendlyDescription(partial);
+    return partial;
+  });
+}
+
+// ── Render table ──────────────────────────────────────────────────────────
+function renderTable() {
+  const tbody = document.getElementById('log-body');
+  tbody.innerHTML = '';
+  let rows = currentFilter === 'ALL' ? allRows : allRows.filter(r => r.level === currentFilter);
+  if (currentMachine) rows = rows.filter(r => r.machine === currentMachine);
+  rows.forEach(r => {
+    const tr = document.createElement('tr');
+    const machineLabel = r.machine ? r.machine.split('.')[0].toUpperCase() : '—';
+    const timeStr = r.time ? new Date(r.time).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '—';
+    tr.innerHTML = `
+      <td class="log-col" title="${r.log}">${r.friendly}</td>
+      <td class="src-col" title="${r.machine||''}">${machineLabel}</td>
+      <td class="scr-col">${r.score}</td>
+      <td class="lvl-col">${lvlBadge(r.level)}</td>
+      <td class="time-col">${timeStr}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+// ── Side alerts ───────────────────────────────────────────────────────────
+function renderSideAlerts() {
+  const panel = document.getElementById('alerts-panel');
+  const alerts = allAlerts.filter(r => r.level === 'CRITICAL'||r.level === 'HIGH'||r.level === 'MEDIUM'||r.level === 'LOW').slice(0, 200);
+  document.getElementById('alert-count').textContent = alerts.length;
+  const newAlerts = alerts.filter(r => {
+    const id = r.id||r.log;
+    if (renderedAlertIds.has(id)) return false;
+    renderedAlertIds.add(id);
+    return true;
+  });
+  newAlerts.forEach(r => {
+    const div = document.createElement('div');
+    div.className = `alert-card ${r.level==='CRITICAL'?'critical':r.level==='MEDIUM'?'medium':r.level==='LOW'?'low':''}`;
+    div.innerHTML = `
+      <div class="alert-top">
+        <span class="alert-src">${r.source}</span>
+        <span class="alert-time">${(r.time||'').split('T').pop().split('.')[0]}</span>
+      </div>
+      <div class="alert-log">${r.log}</div>
+      <div class="alert-score">score: ${r.score}</div>`;
+    panel.insertBefore(div, panel.firstChild);
+  });
+}
+
+// ── Chart ─────────────────────────────────────────────────────────────────
+function updateChart() {
+  const recent = allRows.slice(0, 60).reverse();
+  chart.data.labels = recent.map(r => r.time);
+  chart.data.datasets[0].data = recent.map(r => r.rawScore);
+  chart.data.datasets[0].pointBackgroundColor = recent.map(r => lvlColor(r.level));
+  chart.update('none');
+}
+
+// ── Stats ─────────────────────────────────────────────────────────────────
+function updateStats(status) {
+  if (status && !status.error) {
+    document.getElementById('s-total').textContent    = status.total_events??status.total??allRows.length;
+    document.getElementById('s-critical').textContent = status.critical_alerts??allRows.filter(r=>r.level==='CRITICAL').length;
+    document.getElementById('s-high').textContent     = status.high_alerts??status.high??allRows.filter(r=>r.level==='HIGH').length;
+    document.getElementById('s-medium').textContent   = status.medium_alerts??status.medium??allRows.filter(r=>r.level==='MEDIUM').length;
+    document.getElementById('s-low').textContent      = status.low_alerts??status.low??allRows.filter(r=>r.level==='LOW').length;
+  }
+}
+
+// ── Machine status ────────────────────────────────────────────────────────
+const ONLINE_THRESHOLD_MS = 15 * 60 * 1000;
+
+// Use health data updated_at (frontend clock) as primary signal.
+// Falls back to event timestamps only if no health data exists.
+function computeMachineOnline(healthData) {
+  if (healthData && healthData.updated_at) {
+    const ts = new Date(healthData.updated_at).getTime();
+    if (!isNaN(ts)) return { online: (Date.now() - ts) < ONLINE_THRESHOLD_MS,
+                             lastSeen: new Date(ts).toLocaleTimeString() };
+  }
+  return null;
+}
+
+function updateMachinesStatus(statuses, backendOnline, healthData) {
+  const el = document.getElementById('backend-status');
+  if (!backendOnline) {
+    el.textContent = '⬤ OFFLINE';
+    el.className   = 'backend-status offline';
+    document.getElementById('machines-panel').innerHTML = '';
+    return;
+  }
+  const machineName = currentMachine ? currentMachine.split('.')[0].toUpperCase() : '';
+  // Prefer health-based status (uses frontend clock — immune to backend clock drift)
+  const healthStatus = computeMachineOnline(healthData);
+  const online = healthStatus ? healthStatus.online
+    : (statuses.filter(s => s.machine === currentMachine).length > 0 &&
+       statuses.filter(s => s.machine === currentMachine)[0].online);
+  const lastSeen = healthStatus ? healthStatus.lastSeen : '';
+
+  if (!currentMachine) {
+    el.textContent = '⬤ NO MACHINE';
+    el.className   = 'backend-status';
+  } else {
+    el.textContent = online ? `⬤ ${machineName} ONLINE` : `⬤ ${machineName} OFFLINE`;
+    el.className   = 'backend-status ' + (online ? 'online' : 'offline');
+  }
+
+  const panel = document.getElementById('machines-panel');
+  if (!currentMachine) {
+    panel.innerHTML = '<div class="machine-item" style="color:var(--sub)">No machine connected</div>';
+    return;
+  }
+  panel.innerHTML = `
+    <div class="machine-item">
+      <span class="machine-name" title="${currentMachine}">${machineName}</span>
+      <span class="machine-seen">${lastSeen}</span>
+      <span class="machine-badge ${online?'online':'offline'}">${online?'ONLINE':'OFFLINE'}</span>
+    </div>`;
+}
+
+function toggleMachinesPanel() {
+  document.getElementById('machines-panel').classList.toggle('open');
+}
+document.addEventListener('click', e => {
+  if (!document.getElementById('machines-wrap').contains(e.target))
+    document.getElementById('machines-panel').classList.remove('open');
+});
+
+// ── Main refresh ──────────────────────────────────────────────────────────
+// ── Browser push notifications ────────────────────────────────────────────
+let _notifReady   = false;
+let _notifSeenIds = new Set();
+
+function _initNotifications() {
+  if (!('Notification' in window)) return;
+  if (Notification.permission === 'granted') { _notifReady = true; return; }
+  if (Notification.permission !== 'denied') {
+    Notification.requestPermission().then(p => { _notifReady = (p === 'granted'); });
+  }
+}
+
+function _notifyNewAlerts(alerts) {
+  if (!_notifReady) return;
+  const urgent = alerts.filter(a =>
+    (a.level === 'CRITICAL' || a.level === 'HIGH') && a.id && !_notifSeenIds.has(a.id)
+  );
+  urgent.forEach(a => {
+    _notifSeenIds.add(a.id);
+    const desc = friendlyDescription(a).slice(0, 80);
+    new Notification(`🚨 ${a.level} Alert — Log Sentinel AI`, {
+      body: desc,
+      tag:  a.id,
+    });
+  });
+}
+
+_initNotifications();
+
+// ── System health widget ──────────────────────────────────────────────────
+function updateHealthWidget(data) {
+  const w = document.getElementById('health-widget');
+  if (!data || data.error || !Object.keys(data).length) {
+    w.innerHTML = '<span class="health-placeholder">Waiting for agent…</span>';
+    return;
+  }
+  const meters = [
+    { label:'CPU',  pct:data.cpu,  val:`${(+data.cpu).toFixed(0)}%`,
+      extra:'', cls:'cpu' },
+    { label:'RAM',  pct:data.ram,
+      val:`${(+data.ram_used).toFixed(1)}/${(+data.ram_total).toFixed(1)} GB`,
+      cls:'ram' },
+    { label:'DISK', pct:data.disk,
+      val:`${(+data.disk_used).toFixed(0)}/${(+data.disk_total).toFixed(0)} GB`,
+      cls:'disk' },
+  ];
+  w.innerHTML = meters.map(m => {
+    const danger = m.pct > 85 ? ' high' : '';
+    return `<div class="h-meter">
+      <span class="h-meter-lbl">${m.label}</span>
+      <div class="h-track"><div class="h-fill ${m.cls}${danger}" style="width:${Math.min(100,m.pct)}%"></div></div>
+      <span class="h-val">${m.val}</span>
+    </div>`;
+  }).join('');
+}
+
+async function refresh() {
+  const endpoint = currentTab === 'alerts' ? '/proxy/alerts?limit=500' : '/proxy/events?limit=500';
+  try {
+    const healthUrl = currentMachine
+      ? `/api/health?machine=${encodeURIComponent(currentMachine)}`
+      : '/api/health?machine=';
+    const [rowsRes, alertsRes, statusRes, machinesRes, eventsRes, healthRes] = await Promise.all([
+      fetch(endpoint), fetch('/proxy/alerts?limit=500'),
+      fetch('/proxy/status'), fetch('/proxy/alerts/machines'),
+      fetch('/proxy/events?limit=200'), fetch(healthUrl),
+    ]);
+    const rawRows   = await rowsRes.json();
+    const rawAlerts = alertsRes.ok  ? await alertsRes.json()  : rawRows;
+    const statusD   = statusRes.ok  ? await statusRes.json()  : {};
+    const machinesD = machinesRes.ok ? await machinesRes.json() : {};
+    const rawEvents = eventsRes.ok  ? await eventsRes.json()  : rawRows;
+    const healthD   = healthRes.ok  ? await healthRes.json()  : {};
+    allRows   = normalise(rawRows);
+    allAlerts = normalise(rawAlerts);
+    if (machinesD.machines) updateMachineDropdown(machinesD.machines);
+    const machineStatuses = computeMachineStatuses(normalise(rawEvents));
+    updateMachinesStatus(machineStatuses, rowsRes.ok, healthD);
+    _notifyNewAlerts(allAlerts);
+    updateHealthWidget(healthD);
+    renderTable(); renderSideAlerts(); updateChart(); updateStats(statusD);
+  } catch(e) { updateMachinesStatus([], false); }
+}
+
+// ── Theme toggle ──────────────────────────────────────────────────────────
+function toggleTheme() {
+  const isLight = document.body.classList.toggle('light');
+  const btn = document.getElementById('theme-btn');
+  btn.textContent = isLight ? '🌑' : '🌙';
+  btn.title = isLight ? 'Switch to dark mode' : 'Switch to light mode';
+  localStorage.setItem('lsa-theme', isLight ? 'light' : 'dark');
+  updateChartTheme(isLight);
+}
+
+function updateChartTheme(isLight) {
+  const gridColor = isLight ? 'rgba(0,0,0,0.06)' : 'rgba(26,37,64,.5)';
+  const tickColor = isLight ? '#6b7fa0' : '#4a6080';
+  const lineColor = isLight ? '#0066cc' : '#00d4ff';
+  const fillColor = isLight ? 'rgba(0,102,204,0.06)' : 'rgba(0,212,255,0.04)';
+  chart.data.datasets[0].borderColor     = lineColor;
+  chart.data.datasets[0].backgroundColor = fillColor;
+  chart.options.scales.y.grid.color      = gridColor;
+  chart.options.scales.y.ticks.color     = tickColor;
+  chart.update('none');
+}
+
+(function() {
+  const saved = localStorage.getItem('lsa-theme');
+  if (saved === 'light') {
+    document.body.classList.add('light');
+    document.getElementById('theme-btn').textContent = '🌑';
+    updateChartTheme(true);
+  }
+})();
+
+refresh();
+setInterval(refresh, REFRESH_MS);
+
+// ── Machine Pairing ───────────────────────────────────────────────────────
+function openPairModal() {
+  document.getElementById('pair-code').value = '';
+  document.getElementById('pair-machine-result').style.display = 'none';
+  document.getElementById('pair-machine-result').textContent = '';
+  document.getElementById('pair-submit-btn').disabled = false;
+  document.getElementById('pair-submit-btn').textContent = 'Connect';
+  document.getElementById('pair-overlay').classList.add('open');
+  setTimeout(() => document.getElementById('pair-code').focus(), 100);
+}
+
+function closePairModal() {
+  document.getElementById('pair-overlay').classList.remove('open');
+}
+
+async function claimCode() {
+  const code = document.getElementById('pair-code').value.trim().toUpperCase();
+  if (code.length !== 6) { toast('Enter the 6-character code from the agent.', 'err'); return; }
+
+  const btn = document.getElementById('pair-submit-btn');
+  btn.disabled = true;
+  btn.textContent = 'Connecting…';
+
+  const res = await fetch('/api/pair/claim', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code }),
+  });
+  const data = await res.json();
+
+  if (res.ok) {
+    currentMachine = data.machine;
+    const result = document.getElementById('pair-machine-result');
+    result.textContent = `✓ Connected to: ${data.machine}`;
+    result.style.display = 'block';
+    btn.textContent = '✓ Done';
+    toast(`Machine connected: ${data.machine}`, 'ok', 4000);
+    // Update the connect button to show machine name
+    const connectBtn = document.getElementById('connect-btn');
+    if (connectBtn) connectBtn.textContent = `✓ ${data.machine.split('.')[0]}`;
+    // Refresh alerts filtered to this machine
+    setTimeout(() => { closePairModal(); refresh(); }, 1500);
+  } else {
+    btn.disabled = false;
+    btn.textContent = 'Connect';
+    toast(data.error || 'Failed to connect machine.', 'err', 5000);
+  }
+}
+
+// On load: if already paired, update the connect button label
+(function() {
+  const machine = '{{ user_machine }}';
+  if (machine) {
+    const btn = document.getElementById('connect-btn');
+    if (btn) btn.textContent = `✓ ${machine.split('.')[0]}`;
+  }
+})();
+
+// ── Health Widget ─────────────────────────────────────────────────────────
+// This function is called by the agent health reports feature.
+// When the system health code is provided, it will populate #health-widget.
+function updateHealthWidget(data) {
+  const widget = document.getElementById('health-widget');
+  const ph = document.getElementById('health-placeholder');
+  if (ph) ph.remove();
+  // data: { cpu: 45, memory: 62, disk: 78, machine: 'HOSTNAME' }
+  const pct = v => `${Math.round(v)}%`;
+  const bar = (label, val) => {
+    const color = val > 85 ? 'var(--danger)' : val > 65 ? 'var(--warn)' : 'var(--ok)';
+    return `<div style="display:flex;align-items:center;gap:6px;">
+      <span style="font-family:var(--mono);font-size:.58rem;color:var(--sub);width:34px;">${label}</span>
+      <div style="width:80px;height:5px;background:var(--border);border-radius:2px;overflow:hidden;">
+        <div style="width:${pct(val)};height:100%;background:${color};border-radius:2px;transition:width .5s;"></div>
+      </div>
+      <span style="font-family:var(--mono);font-size:.6rem;color:${color};">${pct(val)}</span>
+    </div>`;
+  };
+  widget.innerHTML = (data.machine ? `<span style="font-family:var(--mono);font-size:.58rem;color:var(--sub);margin-right:4px;">${data.machine.split('.')[0]}</span>` : '')
+    + (data.cpu    !== undefined ? bar('CPU',    data.cpu)    : '')
+    + (data.memory !== undefined ? bar('MEM',    data.memory) : '')
+    + (data.disk   !== undefined ? bar('DISK',   data.disk)   : '');
+}
+</script>
+</body>
+</html>
