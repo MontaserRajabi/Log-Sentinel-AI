@@ -355,7 +355,9 @@ def log_notification(alert: dict, channels: list[str]) -> None:
     """
     record = {
         "notified_at"      : datetime.now().isoformat(timespec="seconds"),
+        "sent_at"          : datetime.now().isoformat(timespec="seconds"),
         "block_id"         : alert.get("block_id"),
+        "machine"          : alert.get("source_machine", ""),
         "priority"         : alert.get("priority"),
         "threat_categories": alert.get("threat_categories", []),
         "anomaly_score"    : alert.get("anomaly_score"),
@@ -370,27 +372,65 @@ def log_notification(alert: dict, channels: list[str]) -> None:
 # DEDUPLICATION
 # ══════════════════════════════════════════════════════════════════════════════
 
-_notified_cache: dict[str, float] = {}
+_notified_cache: dict[str, float] = {}       # block_id → sent_timestamp
+_machine_email_sent: dict[str, float] = {}   # machine  → last_email_timestamp
+
+EMAIL_MACHINE_COOLDOWN = int(os.getenv("NOTIFY_MACHINE_COOLDOWN_SEC", 3600))  # 1 h per machine
+
+
+def _load_notified_cache() -> None:
+    """Load previously sent block_ids from notification_log so we don't re-notify after a restart."""
+    if not NOTIFY_LOG_FILE.exists():
+        return
+    now = time.time()
+    try:
+        with open(NOTIFY_LOG_FILE, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                    block_id = rec.get("block_id", "")
+                    sent_at  = rec.get("sent_at", "")
+                    machine  = rec.get("machine", "")
+                    if not block_id or not sent_at:
+                        continue
+                    ts  = datetime.fromisoformat(sent_at).timestamp()
+                    age = now - ts
+                    if age < COOLDOWN_SEC:
+                        _notified_cache[block_id] = ts
+                    if machine and age < EMAIL_MACHINE_COOLDOWN:
+                        if machine not in _machine_email_sent or ts > _machine_email_sent[machine]:
+                            _machine_email_sent[machine] = ts
+                except Exception:
+                    pass
+    except Exception as e:
+        logger.warning("Could not load notification log for dedup: %s", e)
 
 
 def _should_notify(alert: dict) -> bool:
-    """
-    Return True if this alert has not been notified within the cooldown window.
-    Uses block_id as the deduplication key — each unique block only fires once
-    per COOLDOWN_SEC window, preventing repeat notifications for the same event.
-    """
+    """Deduplicate by block_id — each block fires at most once per COOLDOWN_SEC."""
     key = alert.get("block_id", "unknown")
     now = time.time()
-
-    # Prune expired entries
     expired = [k for k, t in _notified_cache.items() if now - t > COOLDOWN_SEC]
     for k in expired:
         del _notified_cache[k]
-
     if key in _notified_cache:
         return False
-
     _notified_cache[key] = now
+    return True
+
+
+def _should_email(alert: dict) -> bool:
+    """Rate-limit emails to once per machine per EMAIL_MACHINE_COOLDOWN seconds."""
+    machine = alert.get("source_machine", "unknown")
+    now     = time.time()
+    last    = _machine_email_sent.get(machine, 0)
+    if now - last < EMAIL_MACHINE_COOLDOWN:
+        logger.debug("Email suppressed (machine cooldown): %s", machine)
+        return False
+    _machine_email_sent[machine] = now
     return True
 
 
@@ -461,8 +501,8 @@ def dispatch(alert: dict) -> None:
     if SOUND_ENABLED:
         channels_used.append("sound")
 
-    # 3. Email
-    if EMAIL_ENABLED:
+    # 3. Email (rate-limited: one email per machine per hour)
+    if EMAIL_ENABLED and _should_email(alert):
         if send_email_notification(alert):
             channels_used.append("email")
 
@@ -497,11 +537,14 @@ def start_notifier(
     logger.info("=" * 60)
     logger.info("Watching: %s", alerts_file)
     logger.info(
-        "Config: min_priority=%s  cooldown=%ds  email=%s  sound=%s",
-        MIN_PRIORITY, COOLDOWN_SEC,
+        "Config: min_priority=%s  cooldown=%ds  machine_email_cooldown=%ds  email=%s  sound=%s",
+        MIN_PRIORITY, COOLDOWN_SEC, EMAIL_MACHINE_COOLDOWN,
         "enabled" if EMAIL_ENABLED else "disabled",
         "enabled" if SOUND_ENABLED else "disabled",
     )
+
+    _load_notified_cache()
+    logger.info("Loaded %d previously notified block_ids from log.", len(_notified_cache))
 
     last_size = alerts_file.stat().st_size if alerts_file.exists() else 0
 

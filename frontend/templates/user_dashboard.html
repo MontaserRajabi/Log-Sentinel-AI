@@ -574,8 +574,8 @@ function normalise(raw) {
 function renderTable() {
   const tbody = document.getElementById('log-body');
   tbody.innerHTML = '';
+  // Server already filters by machine for non-admin users — only filter by level
   let rows = currentFilter === 'ALL' ? allRows : allRows.filter(r => r.level === currentFilter);
-  if (currentMachine) rows = rows.filter(r => r.machine === currentMachine);
   rows.forEach(r => {
     const tr = document.createElement('tr');
     const machineLabel = r.machine ? r.machine.split('.')[0].toUpperCase() : '—';
@@ -751,6 +751,13 @@ function updateHealthWidget(data) {
   }).join('');
 }
 
+async function _safeJson(res) {
+  if (!res.ok) return null;
+  const ct = res.headers.get('content-type') || '';
+  if (!ct.includes('json')) return null;  // HTML redirect → session expired
+  try { return await res.json(); } catch { return null; }
+}
+
 async function refresh() {
   const endpoint = currentTab === 'alerts' ? '/proxy/alerts?limit=500' : '/proxy/events?limit=500';
   try {
@@ -762,12 +769,18 @@ async function refresh() {
       fetch('/proxy/status'), fetch('/proxy/alerts/machines'),
       fetch('/proxy/events?limit=200'), fetch(healthUrl),
     ]);
+
+    // If the main endpoint returned HTML (session expired → redirect to login), reload page
+    const ct = rowsRes.headers.get('content-type') || '';
+    if (!ct.includes('json')) { window.location.reload(); return; }
+
     const rawRows   = await rowsRes.json();
-    const rawAlerts = alertsRes.ok  ? await alertsRes.json()  : rawRows;
-    const statusD   = statusRes.ok  ? await statusRes.json()  : {};
-    const machinesD = machinesRes.ok ? await machinesRes.json() : {};
-    const rawEvents = eventsRes.ok  ? await eventsRes.json()  : rawRows;
-    const healthD   = healthRes.ok  ? await healthRes.json()  : {};
+    const rawAlerts = await _safeJson(alertsRes)  ?? rawRows;
+    const statusD   = await _safeJson(statusRes)  ?? {};
+    const machinesD = await _safeJson(machinesRes) ?? {};
+    const rawEvents = await _safeJson(eventsRes)  ?? rawRows;
+    const healthD   = await _safeJson(healthRes)  ?? {};
+
     allRows   = normalise(rawRows);
     allAlerts = normalise(rawAlerts);
     if (machinesD.machines) updateMachineDropdown(machinesD.machines);
@@ -776,7 +789,10 @@ async function refresh() {
     _notifyNewAlerts(allAlerts);
     updateHealthWidget(healthD);
     renderTable(); renderSideAlerts(); updateChart(); updateStats(statusD);
-  } catch(e) { updateMachinesStatus([], false); }
+  } catch(e) {
+    console.error('Dashboard refresh error:', e);
+    updateMachinesStatus([], false);
+  }
 }
 
 // ── Theme toggle ──────────────────────────────────────────────────────────

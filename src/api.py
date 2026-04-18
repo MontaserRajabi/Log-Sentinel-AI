@@ -211,7 +211,7 @@ def root():
 
 # ── Agent ingestion ───────────────────────────────────────────────────────────
 
-@app.post("/ingest", tags=["Ingest"])
+@app.post("/ingest", status_code=201, tags=["Ingest"])
 def ingest_logs(logs: list[dict]):
     """
     Receives log batches from agent.py (via server.py proxy).
@@ -265,7 +265,7 @@ def ingest_logs(logs: list[dict]):
             logger.warning("Ingest scoring error: %s", _e)
 
     logger.info("Ingested %d log line(s) from agent.", written)
-    return {"status": "ok", "received": written}, 201
+    return {"status": "ok", "received": written}
 
 
 # ── System status ─────────────────────────────────────────────────────────────
