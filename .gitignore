@@ -8,6 +8,8 @@ data/staging/alerts.jsonl
 data/staging/alerts.jsonl.bak
 data/staging/retrain_log.jsonl
 data/staging/collector_cursor.json
+data/staging/notification_log.jsonl
+data/staging/alert_labels.json
 data/parsed/
 data/features/
 src/ingest/data/

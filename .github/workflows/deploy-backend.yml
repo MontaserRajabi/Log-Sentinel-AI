@@ -1,0 +1,67 @@
+name: Deploy Backend to Azure
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - 'src/**'
+      - 'models/**'
+      - 'requirements.txt'
+      - 'startup.sh'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_ABA8ADC399CA423CA5456FEC3F20CC31 }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_1F59533F6EB247FCBBCC995174C841C2 }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_64CDF56992DD40C695AE0C75AB75E7A4 }}
+
+      - name: Find backend App Service
+        id: info
+        run: |
+          BACKEND_NAME=$(az webapp list --query "[?contains(defaultHostName, 'backend')].name" -o tsv | head -1)
+          RG=$(az webapp list --query "[?contains(defaultHostName, 'backend')].resourceGroup" -o tsv | head -1)
+          echo "name=$BACKEND_NAME" >> $GITHUB_OUTPUT
+          echo "rg=$RG" >> $GITHUB_OUTPUT
+          echo "Deploying to: $BACKEND_NAME in $RG"
+
+      - name: Zip backend source
+        run: |
+          zip -r backend.zip . \
+            --exclude "frontend/*" \
+            --exclude ".git/*" \
+            --exclude ".github/*" \
+            --exclude "__pycache__/*" \
+            --exclude "*.pyc" \
+            --exclude ".env" \
+            --exclude "data/staging/alerts.jsonl" \
+            --exclude "data/staging/events.jsonl" \
+            --exclude "data/staging/notification_log.jsonl" \
+            --exclude "data/staging/alert_labels.json"
+
+      - name: Deploy to backend App Service
+        run: |
+          az webapp deploy \
+            --name ${{ steps.info.outputs.name }} \
+            --resource-group ${{ steps.info.outputs.rg }} \
+            --src-path backend.zip \
+            --type zip \
+            --async false
+
+      - name: Restart backend
+        run: |
+          az webapp restart \
+            --name ${{ steps.info.outputs.name }} \
+            --resource-group ${{ steps.info.outputs.rg }}
