@@ -38,10 +38,11 @@ GET  /collector/logs          → last N lines from the collector log
 import json
 import logging
 import os
+import re
 import sys
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import AsyncGenerator
 
@@ -209,6 +210,82 @@ def root():
     }
 
 
+# ── Rule-based alert emitter (bypasses ML; fires on known threat patterns) ────
+
+# Thresholds: how many keyword hits in a block to fire each priority
+_RULE_THRESHOLDS = {
+    "brute_force"       : ("HIGH",     3),   # 3+ failed-logon indicators
+    "privilege_esc"     : ("HIGH",     1),   # any privilege escalation indicator
+    "startup"           : ("HIGH",     1),   # any persistence / scheduled task indicator
+    "log_tamper"        : ("CRITICAL", 1),   # any log-clear indicator
+    "suspicious_process": ("MEDIUM",   2),   # 2+ suspicious-process indicators
+    "dos"               : ("MEDIUM",   5),
+    "network"           : ("LOW",      5),
+}
+
+def _emit_rule_based_alerts(
+    blocks: "dict[str, list[dict]]",
+    alerts_out: "Path",
+) -> "list[dict]":
+    """
+    Scan event blocks for threat keyword hits and emit alerts directly
+    without going through the ML model.  Runs on every ingest batch.
+    """
+    from ingest.log_collector import THREAT_KEYWORDS
+    emitted: list[dict] = []
+    now_str = datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+    for block_id, evts in blocks.items():
+        hits: dict[str, int] = {cat: 0 for cat in THREAT_KEYWORDS}
+        for e in evts:
+            lower = e["raw"].lower()
+            for cat, kws in THREAT_KEYWORDS.items():
+                if any(kw in lower for kw in kws):
+                    hits[cat] += 1
+
+        for cat, (priority, min_hits) in _RULE_THRESHOLDS.items():
+            if hits.get(cat, 0) < min_hits:
+                continue
+
+            source = evts[0].get("source_machine", "unknown")
+            sig = f"{block_id}:{cat}"
+            # Simple per-block dedup — don't re-emit same category for same block
+            if not hasattr(_emit_rule_based_alerts, "_seen"):
+                _emit_rule_based_alerts._seen = set()
+            if sig in _emit_rule_based_alerts._seen:
+                continue
+            _emit_rule_based_alerts._seen.add(sig)
+
+            alert = {
+                "alert_at"          : now_str,
+                "block_id"          : block_id,
+                "source_machine"    : source,
+                "anomaly_score"     : 0.0,
+                "cvss_score"        : {"CRITICAL": 9.5, "HIGH": 7.5, "MEDIUM": 5.0, "LOW": 2.0}.get(priority, 5.0),
+                "num_events"        : len(evts),
+                "error_count"       : 0,
+                "threat_categories" : [cat],
+                "priority"          : priority,
+                "rule_based"        : True,
+            }
+            alerts_out.parent.mkdir(parents=True, exist_ok=True)
+            with open(alerts_out, "a") as f:
+                f.write(json.dumps(alert) + "\n")
+
+            logger.warning(
+                "🚨 RULE ALERT | block=%-38s | cat=%s | hits=%d | priority=%s",
+                block_id, cat, hits[cat], priority,
+            )
+            emitted.append({
+                "priority"   : priority,
+                "description": f"{priority} threat detected — category: {cat.replace('_', ' ')} ({hits[cat]} indicator(s))",
+                "cvss"       : alert["cvss_score"],
+                "block_id"   : block_id,
+            })
+
+    return emitted
+
+
 # ── Agent ingestion ───────────────────────────────────────────────────────────
 
 @app.post("/ingest", status_code=201, tags=["Ingest"])
@@ -228,26 +305,50 @@ def ingest_logs(logs: list[dict]):
     EVENTS_FILE.parent.mkdir(parents=True, exist_ok=True)
     events_for_scoring: list[dict] = []
 
+    # Import once for EventID → threat-category mapping
+    from ingest.log_collector import WINDOWS_HIGH_PRIORITY_IDS as _HP_IDS
+    _evtid_re = re.compile(r"EventID=(\d+)")
+
     with open(EVENTS_FILE, "a", encoding="utf-8") as f:
         for item in logs:
             raw    = item.get("log", "").strip()
             source = item.get("source", "agent")
             if not raw:
                 continue
+
+            # Detect high-priority Windows EventIDs in the raw summary line
+            priority_threat = None
+            m = _evtid_re.search(raw)
+            if m:
+                try:
+                    priority_threat = _HP_IDS.get(int(m.group(1)))
+                except ValueError:
+                    pass
+
             event = {
                 "raw"           : raw,
                 "block_id"      : f"agent_{source}_{datetime.now().strftime('%Y%m%d_%H%M')}",
                 "source"        : source,
                 "source_machine": source,
                 "os"            : "unknown",
-                "collected_at"  : datetime.now().isoformat(timespec="seconds"),
+                "collected_at"  : datetime.now(timezone.utc).isoformat(timespec="seconds"),
                 "template_id"   : "agent_generic",
+                "priority_threat": priority_threat,
             }
             f.write(json.dumps(event) + "\n")
             events_for_scoring.append(event)
             written += 1
 
-    # Score the batch and emit alerts if the model is available
+    # Group events by block for both rule-based and ML scoring
+    from collections import defaultdict as _dd
+    blocks: dict[str, list[dict]] = _dd(list)
+    for e in events_for_scoring:
+        blocks[e["block_id"]].append(e)
+
+    # ── Rule-based alerts (always runs, no ML model needed) ───────────────────
+    generated_alerts: list[dict] = _emit_rule_based_alerts(blocks, ALERTS_FILE)
+
+    # ── ML-based alerts (additional layer on top of rule-based) ──────────────
     if events_for_scoring:
         try:
             model, feature_cols = _get_ingest_model()
@@ -260,12 +361,19 @@ def ingest_logs(logs: list[dict]):
                 if not df_feat.empty:
                     df_scored = score_events(df_feat, model, feature_cols, ANOMALY_SCORE_THRESHOLD)
                     for _, row in df_scored[df_scored["is_anomaly"]].iterrows():
-                        emit_alert(row, EVENTS_FILE, ALERTS_FILE)
+                        alert = emit_alert(row, EVENTS_FILE, ALERTS_FILE)
+                        if alert:
+                            generated_alerts.append({
+                                "priority"   : alert.get("priority", "MEDIUM"),
+                                "description": f"{alert.get('priority','MEDIUM')} threat detected — score {alert.get('anomaly_score',0):.4f} | categories: {', '.join(alert.get('threat_categories') or ['unknown'])}",
+                                "cvss"       : alert.get("cvss_score"),
+                                "block_id"   : alert.get("block_id"),
+                            })
         except Exception as _e:
             logger.warning("Ingest scoring error: %s", _e)
 
-    logger.info("Ingested %d log line(s) from agent.", written)
-    return {"status": "ok", "received": written}
+    logger.info("Ingested %d log line(s) from agent, %d alert(s) generated.", written, len(generated_alerts))
+    return {"status": "ok", "received": written, "alerts": generated_alerts}
 
 
 # ── System status ─────────────────────────────────────────────────────────────

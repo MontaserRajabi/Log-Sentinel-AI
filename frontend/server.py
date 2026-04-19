@@ -700,7 +700,7 @@ def receive_health():
     data = request.get_json(silent=True) or {}
     machine = data.get("machine", "").strip().lower()
     if machine:
-        _health_cache[machine] = {**data, "updated_at": datetime.now(timezone.utc).replace(tzinfo=None).isoformat()}
+        _health_cache[machine] = {**data, "updated_at": datetime.now(timezone.utc).isoformat()}
     return jsonify({"ok": True})
 
 
@@ -721,14 +721,17 @@ def get_health():
 @admin_required
 def get_health_machines():
     """Admin: returns last-seen times for all machines from health cache."""
-    from datetime import datetime as _dt
-    now = _dt.now()
+    from datetime import datetime as _dt, timezone as _tz
+    now = _dt.now(_tz.utc)
     THRESHOLD = 15 * 60  # 15 minutes in seconds
     result = {}
     for machine, data in _health_cache.items():
         updated = data.get("updated_at", "")
         try:
-            delta = (now - _dt.fromisoformat(updated)).total_seconds()
+            updated_dt = _dt.fromisoformat(updated)
+            if updated_dt.tzinfo is None:
+                updated_dt = updated_dt.replace(tzinfo=_tz.utc)
+            delta = (now - updated_dt).total_seconds()
             result[machine] = {"online": delta < THRESHOLD, "last_seen": updated}
         except Exception:
             result[machine] = {"online": False, "last_seen": updated}

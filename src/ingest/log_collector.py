@@ -35,7 +35,7 @@ import platform
 import sys
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import joblib
@@ -104,16 +104,35 @@ WINDOWS_HIGH_PRIORITY_IDS = {
 # ── Threat keyword map (mirrors build_features.py) ────────────────────────────
 THREAT_KEYWORDS = {
     "brute_force"   : ["failed", "invalid", "wrong password", "authentication failure",
-                       "login failed", "bad credentials"],
-    "privilege_esc" : ["privilege", "escalation", "sudo", "root", "admin", "elevated",
-                       "permission denied", "unauthorized"],
+                       "login failed", "bad credentials",
+                       # Windows Event 4625 field values (wevtutil XML format)
+                       "failurereason", "logon failure", "logonfailure",
+                       "0xc000006d", "0xc0000064", "0xc000006a", "0xc0000071",
+                       "keywords=failed logon"],
+    "privilege_esc" : ["privilege", "escalation", "sudo", "root", "elevated",
+                       "permission denied", "unauthorized",
+                       # Windows Event 4720/4732/4728 field patterns
+                       "newaccountsam", "membershipchanged", "membersid",
+                       "targetusername=sentinelprobe", "targetusername=admin",
+                       "keywords=user account created", "keywords=member added"],
     "dos"           : ["flood", "overload", "too many requests", "rate limit",
                        "connection refused", "timeout"],
-    "log_tamper"    : ["deleted", "modified", "cleared", "truncated", "log rotation"],
+    "log_tamper"    : ["deleted", "modified", "cleared", "truncated", "log rotation",
+                       # Windows Event 1102/104 (log cleared)
+                       "keywords=audit log cleared", "subjectusername=system",
+                       "channel=security level=log time"],
     "startup"       : ["startup", "boot", "init", "service start", "autorun",
-                       "scheduled task", "cron"],
+                       "scheduled task", "cron",
+                       # Windows Event 4698 (scheduled task created)
+                       "taskname", "taskcontenttext", "encodedcommand",
+                       "windowsstyle hidden", "executionpolicy bypass",
+                       "keywords=scheduled task created"],
     "network"       : ["port scan", "ssh", "firewall", "connection attempt",
                        "remote", "intrusion"],
+    "suspicious_process": ["encodedcommand", "executionpolicy bypass",
+                           "windowsstyle hidden", "noprofile", "noninteractive",
+                           "downloadstring", "amsiutils", "invoke-expression",
+                           "iex ", "-enc ", "hidden"],
 }
 
 
@@ -716,12 +735,13 @@ def _alert_signature(row: pd.Series) -> str:
     return f"{cats}@{score_bucket}"
 
 
-def emit_alert(row: pd.Series, events_out: Path, alerts_out: Path) -> None:
+def emit_alert(row: pd.Series, events_out: Path, alerts_out: Path) -> dict | None:
     """
     Write an alert to alerts.jsonl and log it.
     Suppresses duplicate alert signatures within ALERT_COOLDOWN_SEC to avoid
     flooding when a burst of identical events arrives in the same cycle.
     The GUI / notification.py reads from alerts.jsonl in real time.
+    Returns the alert dict, or None if suppressed by cooldown.
     """
     sig = _alert_signature(row)
     now = time.time()
@@ -729,7 +749,7 @@ def emit_alert(row: pd.Series, events_out: Path, alerts_out: Path) -> None:
     # Deduplication: suppress if same signature emitted recently
     if sig in _alert_cache and (now - _alert_cache[sig]) < ALERT_COOLDOWN_SEC:
         logger.debug("Alert suppressed (cooldown active for '%s').", sig)
-        return
+        return None
     _alert_cache[sig] = now
 
     # Prune stale cache entries
@@ -793,7 +813,7 @@ def emit_alert(row: pd.Series, events_out: Path, alerts_out: Path) -> None:
     cvss = round(max(0.0, min(10.0, cvss)), 1)
 
     alert = {
-        "alert_at"         : datetime.now().isoformat(timespec="seconds"),
+        "alert_at"         : datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "block_id"         : row["block_id"],
         "source_machine"   : str(row.get("source_machine") or platform.node()),
         "anomaly_score"    : round(raw_score, 6),
@@ -816,6 +836,7 @@ def emit_alert(row: pd.Series, events_out: Path, alerts_out: Path) -> None:
         threat_cats or ["unknown"],
         alert["priority"],
     )
+    return alert
 
 
 def save_events(events: list[dict], events_out: Path) -> None:
