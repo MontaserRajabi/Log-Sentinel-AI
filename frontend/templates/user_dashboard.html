@@ -294,6 +294,37 @@ td.time-col { width:12%; color:var(--sub); }
 ::-webkit-scrollbar { width:4px; }
 ::-webkit-scrollbar-track { background:transparent; }
 ::-webkit-scrollbar-thumb { background:var(--border); }
+
+/* ── Focus styles for keyboard navigation ── */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tab-btn:focus-visible { outline-offset: -2px; }
+.filter-btn:focus-visible { outline-offset: -1px; }
+
+/* ── Empty state ── */
+.empty-state {
+  text-align: center; padding: 48px 24px;
+  font-family: var(--mono); font-size: .72rem; color: var(--sub);
+  letter-spacing: 1px; line-height: 2;
+}
+.empty-state-icon { font-size: 2rem; display: block; margin-bottom: 12px; opacity: .4; }
+
+/* ── Loading skeleton ── */
+.skeleton-row td { padding: 8px 11px; }
+.skeleton-cell {
+  height: 10px; border-radius: 2px;
+  background: linear-gradient(90deg, var(--border) 25%, rgba(26,37,64,.8) 50%, var(--border) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite;
+}
+@keyframes shimmer { to { background-position: -200% 0; } }
+
+/* ── Stat loading pulse ── */
+.stat-value.loading { opacity: .35; animation: pulse 1.2s ease infinite alternate; }
+@keyframes pulse { to { opacity: .65; } }
 </style>
 </head>
 <body>
@@ -311,21 +342,21 @@ td.time-col { width:12%; color:var(--sub); }
   </div>
   <div class="topbar-right">
     <span class="user-chip" id="user-chip">{{ username }}</span>
-    <button class="btn-sm btn-theme" id="theme-btn" onclick="toggleTheme()" title="Toggle light/dark mode">🌙</button>
-    <div class="divider"></div>
-    <button class="btn-sm btn-connect" id="connect-btn" onclick="openPairModal()">⊕ Connect Machine</button>
-    <button class="btn-sm btn-outline" onclick="location.href='/profile'">⚙ Profile</button>
-    <button class="btn-sm btn-danger"  onclick="location.href='/logout'">Logout</button>
+    <button class="btn-sm btn-theme" id="theme-btn" onclick="toggleTheme()" title="Toggle light/dark mode" aria-label="Toggle light/dark mode">🌙</button>
+    <div class="divider" role="separator"></div>
+    <button class="btn-sm btn-connect" id="connect-btn" onclick="openPairModal()" aria-label="Connect a machine">⊕ Connect Machine</button>
+    <button class="btn-sm btn-outline" onclick="location.href='/profile'" aria-label="Go to profile settings">⚙ Profile</button>
+    <button class="btn-sm btn-danger"  onclick="location.href='/logout'" aria-label="Log out">Logout</button>
   </div>
 </header>
 
 <!-- STATS -->
 <div class="stats-row">
-  <div class="stat"><span class="stat-label">// Total Events</span><span class="stat-value c-total"    id="s-total">—</span></div>
-  <div class="stat"><span class="stat-label">// Critical</span><span class="stat-value c-critical" id="s-critical">—</span></div>
-  <div class="stat"><span class="stat-label">// High Alerts</span><span class="stat-value c-high"     id="s-high">—</span></div>
-  <div class="stat"><span class="stat-label">// Medium</span><span class="stat-value c-medium"   id="s-medium">—</span></div>
-  <div class="stat"><span class="stat-label">// Low / Normal</span><span class="stat-value c-low"      id="s-low">—</span></div>
+  <div class="stat"><span class="stat-label">// Total Events</span><span class="stat-value c-total loading"    id="s-total"    aria-live="polite">—</span></div>
+  <div class="stat"><span class="stat-label">// Critical</span><span class="stat-value c-critical loading" id="s-critical" aria-live="polite">—</span></div>
+  <div class="stat"><span class="stat-label">// High Alerts</span><span class="stat-value c-high loading"     id="s-high"     aria-live="polite">—</span></div>
+  <div class="stat"><span class="stat-label">// Medium</span><span class="stat-value c-medium loading"   id="s-medium"   aria-live="polite">—</span></div>
+  <div class="stat"><span class="stat-label">// Low / Normal</span><span class="stat-value c-low loading"      id="s-low"      aria-live="polite">—</span></div>
 </div>
 
 <!-- MAIN -->
@@ -364,7 +395,11 @@ td.time-col { width:12%; color:var(--sub); }
               <th class="time-col">Time</th>
             </tr>
           </thead>
-          <tbody id="log-body"></tbody>
+          <tbody id="log-body" aria-live="polite">
+            <tr class="skeleton-row" id="sk1"><td class="log-col"><div class="skeleton-cell" style="width:80%"></div></td><td><div class="skeleton-cell" style="width:60%"></div></td><td><div class="skeleton-cell" style="width:40px"></div></td><td><div class="skeleton-cell" style="width:50px"></div></td><td><div class="skeleton-cell" style="width:55px"></div></td></tr>
+            <tr class="skeleton-row" id="sk2"><td class="log-col"><div class="skeleton-cell" style="width:65%"></div></td><td><div class="skeleton-cell" style="width:70%"></div></td><td><div class="skeleton-cell" style="width:40px"></div></td><td><div class="skeleton-cell" style="width:50px"></div></td><td><div class="skeleton-cell" style="width:55px"></div></td></tr>
+            <tr class="skeleton-row" id="sk3"><td class="log-col"><div class="skeleton-cell" style="width:75%"></div></td><td><div class="skeleton-cell" style="width:55%"></div></td><td><div class="skeleton-cell" style="width:40px"></div></td><td><div class="skeleton-cell" style="width:50px"></div></td><td><div class="skeleton-cell" style="width:55px"></div></td></tr>
+          </tbody>
         </table>
       </div>
     </div>
@@ -392,10 +427,10 @@ td.time-col { width:12%; color:var(--sub); }
 </div>
 
 <!-- ══ PAIR MACHINE MODAL ══ -->
-<div class="overlay" id="pair-overlay">
+<div class="overlay" id="pair-overlay" onclick="if(event.target===this)closePairModal()" role="dialog" aria-modal="true" aria-labelledby="pair-modal-title">
   <div class="modal">
     <div class="modal-head">
-      <h2>⊕ Connect Machine</h2>
+      <h2 id="pair-modal-title">⊕ Connect Machine</h2>
       <button class="modal-close" onclick="closePairModal()">✕</button>
     </div>
     <div class="modal-body">
@@ -427,8 +462,18 @@ let allAlerts    = [];
 let currentMachine = '{{ user_machine }}';
 let currentFilter  = 'ALL';
 let currentTab     = 'alerts';
-const REFRESH_MS   = 5000;
+const REFRESH_MS   = 30000;
 let renderedAlertIds = new Set();
+let expandedRows     = new Set();   // block_ids whose CVE detail row is open
+let firstLoadDone    = false;
+
+// ── Escape key closes modal ────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    const overlay = document.getElementById('pair-overlay');
+    if (overlay && overlay.classList.contains('open')) closePairModal();
+  }
+});
 
 // ── Toast ──────────────────────────────────────────────────────────────────
 function toast(msg, type='ok', ms=3000) {
@@ -555,15 +600,20 @@ function normalise(raw) {
           : null;
     const level = r.priority||r.level||r.severity||(hasScore?'LOW':null);
     const partial = {
-      id:      r.block_id||r.id||'',
-      log:     r.description||r.message||r.log||r.event||r.raw||JSON.stringify(r),
-      source:  r.source||r.host||'backend',
-      machine: r.source_machine||r.source||'',
-      score:   dispScore !== null ? dispScore.toFixed(1) : '—',
-      rawScore:rawScore !== null ? rawScore : 0,
-      level:   level,
-      time:    r.alert_at||r.collected_at||r.timestamp||r.time||'',
-      threats: r.threat_categories||[],
+      id:               r.block_id||r.id||'',
+      log:              r.description||r.message||r.log||r.event||r.raw||JSON.stringify(r),
+      source:           r.source||r.host||'backend',
+      machine:          r.source_machine||r.source||'',
+      score:            dispScore !== null ? dispScore.toFixed(1) : '—',
+      rawScore:         rawScore !== null ? rawScore : 0,
+      level:            level,
+      time:             r.alert_at||r.collected_at||r.timestamp||r.time||'',
+      threats:          r.threat_categories||[],
+      cve_ids:          r.cve_ids||[],
+      cwe:              r.cwe||'',
+      vuln_name:        r.vulnerability_name||'',
+      vuln_desc:        r.vulnerability_desc||'',
+      tip:              r.remediation_tip||'',
     };
     partial.friendly = friendlyDescription(partial);
     return partial;
@@ -576,8 +626,21 @@ function renderTable() {
   tbody.innerHTML = '';
   // Server already filters by machine for non-admin users — only filter by level
   let rows = currentFilter === 'ALL' ? allRows : allRows.filter(r => r.level === currentFilter);
+
+  if (rows.length === 0) {
+    const empty = document.createElement('tr');
+    empty.innerHTML = `<td colspan="5">
+      <div class="empty-state">
+        <span class="empty-state-icon">🛡</span>
+        ${firstLoadDone ? 'No events match the current filter.' : 'Connecting to backend…'}
+      </div>
+    </td>`;
+    tbody.appendChild(empty);
+    return;
+  }
   rows.forEach(r => {
     const tr = document.createElement('tr');
+    tr.style.cursor = 'pointer';
     const machineLabel = r.machine ? r.machine.split('.')[0].toUpperCase() : '—';
     const timeStr = r.time ? new Date(r.time).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '—';
     tr.innerHTML = `
@@ -587,6 +650,35 @@ function renderTable() {
       <td class="lvl-col">${lvlBadge(r.level)}</td>
       <td class="time-col">${timeStr}</td>`;
     tbody.appendChild(tr);
+
+    // Expandable CVE detail row
+    if (r.vuln_name || r.cve_ids.length || r.tip) {
+      const detail = document.createElement('tr');
+      detail.className = 'cve-detail-row';
+      // Restore open state if this row was expanded before the refresh
+      detail.style.display = expandedRows.has(r.id) ? 'table-row' : 'none';
+      const cveLinks = r.cve_ids.map(id =>
+        `<a href="https://nvd.nist.gov/vuln/detail/${id}" target="_blank"
+            style="color:#00d4ff;margin-right:8px;text-decoration:none;">${id}</a>`
+      ).join('');
+      detail.innerHTML = `<td colspan="5" style="padding:14px 18px;background:rgba(0,0,0,.35);border-left:3px solid var(--accent);">
+        <div style="font-size:.75rem;line-height:1.7;">
+          ${r.vuln_name ? `<div style="color:#e0e0ff;font-weight:700;margin-bottom:6px;font-size:.8rem;">&#x1F6E1; ${r.vuln_name}${r.cwe ? ` <span style="color:#8af;font-weight:400;">&mdash; ${r.cwe}</span>` : ''}</div>` : ''}
+          ${r.vuln_desc ? `<div style="color:#aab;margin-bottom:10px;">${r.vuln_desc}</div>` : ''}
+          ${r.cve_ids.length ? `<div style="margin-bottom:10px;">&#x1F517; <b style="color:#8af;">CVE References:</b> ${cveLinks}</div>` : ''}
+          ${r.tip ? `<div style="color:#7fffb0;white-space:pre-line;line-height:1.9;">&#x1F4CB; <b>Remediation Steps:</b><br>${r.tip}</div>` : ''}
+        </div>
+      </td>`;
+      tbody.appendChild(detail);
+
+      tr.addEventListener('click', () => {
+        const shown = detail.style.display !== 'none';
+        detail.style.display = shown ? 'none' : 'table-row';
+        // Keep expanded set in sync so refresh restores state
+        if (shown) expandedRows.delete(r.id);
+        else        expandedRows.add(r.id);
+      });
+    }
   });
 }
 
@@ -632,6 +724,8 @@ function updateStats(status) {
     document.getElementById('s-high').textContent     = status.high_alerts??status.high??allRows.filter(r=>r.level==='HIGH').length;
     document.getElementById('s-medium').textContent   = status.medium_alerts??status.medium??allRows.filter(r=>r.level==='MEDIUM').length;
     document.getElementById('s-low').textContent      = status.low_alerts??status.low??allRows.filter(r=>r.level==='LOW').length;
+    // Remove loading pulse after first successful update
+    document.querySelectorAll('.stat-value.loading').forEach(el => el.classList.remove('loading'));
   }
 }
 
@@ -758,6 +852,22 @@ async function _safeJson(res) {
   try { return await res.json(); } catch { return null; }
 }
 
+// Compute online/offline status for each machine from recent event timestamps.
+// Used as a fallback when health data is unavailable.
+function computeMachineStatuses(events) {
+  const byMachine = {};
+  events.forEach(e => {
+    const m = e.machine;
+    if (!m) return;
+    const t = e.time ? new Date(e.time).getTime() : 0;
+    if (!byMachine[m] || t > byMachine[m]) byMachine[m] = t;
+  });
+  return Object.entries(byMachine).map(([machine, lastTs]) => ({
+    machine,
+    online: (Date.now() - lastTs) < ONLINE_THRESHOLD_MS,
+  }));
+}
+
 async function refresh() {
   const endpoint = currentTab === 'alerts' ? '/proxy/alerts?limit=500' : '/proxy/events?limit=500';
   try {
@@ -783,6 +893,7 @@ async function refresh() {
 
     allRows   = normalise(rawRows);
     allAlerts = normalise(rawAlerts);
+    firstLoadDone = true;
     if (machinesD.machines) updateMachineDropdown(machinesD.machines);
     const machineStatuses = computeMachineStatuses(normalise(rawEvents));
     updateMachinesStatus(machineStatuses, rowsRes.ok, healthD);
@@ -791,7 +902,9 @@ async function refresh() {
     renderTable(); renderSideAlerts(); updateChart(); updateStats(statusD);
   } catch(e) {
     console.error('Dashboard refresh error:', e);
+    firstLoadDone = true;
     updateMachinesStatus([], false);
+    renderTable();
   }
 }
 
@@ -819,9 +932,11 @@ function updateChartTheme(isLight) {
 
 (function() {
   const saved = localStorage.getItem('lsa-theme');
-  if (saved === 'light') {
+  const preferLight = !saved && window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+  if (saved === 'light' || preferLight) {
     document.body.classList.add('light');
     document.getElementById('theme-btn').textContent = '🌑';
+    document.getElementById('theme-btn').title = 'Switch to dark mode';
     updateChartTheme(true);
   }
 })();
@@ -887,30 +1002,7 @@ async function claimCode() {
   }
 })();
 
-// ── Health Widget ─────────────────────────────────────────────────────────
-// This function is called by the agent health reports feature.
-// When the system health code is provided, it will populate #health-widget.
-function updateHealthWidget(data) {
-  const widget = document.getElementById('health-widget');
-  const ph = document.getElementById('health-placeholder');
-  if (ph) ph.remove();
-  // data: { cpu: 45, memory: 62, disk: 78, machine: 'HOSTNAME' }
-  const pct = v => `${Math.round(v)}%`;
-  const bar = (label, val) => {
-    const color = val > 85 ? 'var(--danger)' : val > 65 ? 'var(--warn)' : 'var(--ok)';
-    return `<div style="display:flex;align-items:center;gap:6px;">
-      <span style="font-family:var(--mono);font-size:.58rem;color:var(--sub);width:34px;">${label}</span>
-      <div style="width:80px;height:5px;background:var(--border);border-radius:2px;overflow:hidden;">
-        <div style="width:${pct(val)};height:100%;background:${color};border-radius:2px;transition:width .5s;"></div>
-      </div>
-      <span style="font-family:var(--mono);font-size:.6rem;color:${color};">${pct(val)}</span>
-    </div>`;
-  };
-  widget.innerHTML = (data.machine ? `<span style="font-family:var(--mono);font-size:.58rem;color:var(--sub);margin-right:4px;">${data.machine.split('.')[0]}</span>` : '')
-    + (data.cpu    !== undefined ? bar('CPU',    data.cpu)    : '')
-    + (data.memory !== undefined ? bar('MEM',    data.memory) : '')
-    + (data.disk   !== undefined ? bar('DISK',   data.disk)   : '');
-}
+
 </script>
 </body>
 </html>
