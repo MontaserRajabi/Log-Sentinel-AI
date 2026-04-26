@@ -600,7 +600,9 @@ function normalise(raw) {
           : null;
     const level = r.priority||r.level||r.severity||(hasScore?'LOW':null);
     const partial = {
-      id:               r.block_id||r.id||'',
+      id:               r.block_id
+                          ? `${r.block_id}|${(r.threat_categories||[]).join(',')}`
+                          : (r.id||''),
       log:              r.description||r.message||r.log||r.event||r.raw||JSON.stringify(r),
       source:           r.source||r.host||'backend',
       machine:          r.source_machine||r.source||'',

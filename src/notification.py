@@ -81,25 +81,18 @@ EMAIL_PASS       = os.getenv("NOTIFY_EMAIL_PASS", "")
 # ── Cosmos DB user lookup (to email the right user per machine) ────────────
 def _get_emails_for_machine(machine: str) -> list[str]:
     """
-    Return all email recipients for an alert on this machine.
-    Always includes the admin email (NOTIFY_EMAIL_TO) plus any users
-    who have paired this machine — so both admin and the affected user
-    receive every alert.
+    Return email recipients for an alert on this machine.
+    Sends to paired users only; falls back to NOTIFY_EMAIL_TO (admin)
+    if no users are found or Cosmos is unreachable.
     """
-    recipients: list[str] = []
-
-    # Always start with the admin / fallback email
-    if EMAIL_TO:
-        recipients.append(EMAIL_TO)
-
     if not machine:
-        return recipients
+        return [EMAIL_TO] if EMAIL_TO else []
 
     try:
         conn = os.getenv("COSMOS_CONNECTION_STRING", "")
         if not conn:
-            logger.debug("COSMOS_CONNECTION_STRING not set — skipping user lookup.")
-            return recipients
+            logger.debug("COSMOS_CONNECTION_STRING not set — falling back to admin email.")
+            return [EMAIL_TO] if EMAIL_TO else []
         from azure.cosmos import CosmosClient
         client        = CosmosClient.from_connection_string(conn)
         container     = client.get_database_client("sentinel").get_container_client("users")
@@ -110,23 +103,14 @@ def _get_emails_for_machine(machine: str) -> list[str]:
             enable_cross_partition_query=True,
         ))
         user_emails = [item.get("email", "") for item in items if item.get("email")]
-        for email in user_emails:
-            if email not in recipients:
-                recipients.append(email)
         if user_emails:
-            logger.info(
-                "Machine '%s' → paired user(s): %s  (admin also notified)",
-                machine_lower, user_emails,
-            )
-        else:
-            logger.info(
-                "Machine '%s' → no paired users found in Cosmos; notifying admin only.",
-                machine_lower,
-            )
+            logger.info("Machine '%s' → sending to user(s): %s", machine_lower, user_emails)
+            return user_emails
+        logger.info("Machine '%s' → no paired users found; falling back to admin email.", machine_lower)
     except Exception as e:
-        logger.warning("Cosmos user lookup failed: %s", e)
+        logger.warning("Cosmos user lookup failed: %s — falling back to admin email.", e)
 
-    return recipients
+    return [EMAIL_TO] if EMAIL_TO else []
 
 MIN_PRIORITY     = os.getenv("NOTIFY_MIN_PRIORITY", "MEDIUM").upper()   # CRITICAL | HIGH | MEDIUM
 COOLDOWN_SEC     = int(os.getenv("NOTIFY_COOLDOWN_SEC", 60))
