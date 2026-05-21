@@ -112,7 +112,7 @@ def _get_emails_for_machine(machine: str) -> list[str]:
 
     return [EMAIL_TO] if EMAIL_TO else []
 
-MIN_PRIORITY     = os.getenv("NOTIFY_MIN_PRIORITY", "MEDIUM").upper()   # CRITICAL | HIGH | MEDIUM
+MIN_PRIORITY     = os.getenv("NOTIFY_MIN_PRIORITY", "HIGH").upper()   # CRITICAL | HIGH | MEDIUM
 COOLDOWN_SEC     = int(os.getenv("NOTIFY_COOLDOWN_SEC", 60))
 SOUND_ENABLED    = os.getenv("NOTIFY_SOUND", "true").lower() == "true"
 POLL_INTERVAL    = 2      # seconds between file checks
@@ -503,9 +503,6 @@ def log_notification(alert: dict, channels: list[str]) -> None:
 # ══════════════════════════════════════════════════════════════════════════════
 
 _notified_cache: dict[str, float] = {}       # block_id → sent_timestamp
-_machine_email_sent: dict[str, float] = {}   # machine  → last_email_timestamp
-
-EMAIL_MACHINE_COOLDOWN = int(os.getenv("NOTIFY_MACHINE_COOLDOWN_SEC", 3600))  # 1 h per machine
 
 
 def _load_notified_cache() -> None:
@@ -530,9 +527,6 @@ def _load_notified_cache() -> None:
                     age = now - ts
                     if age < COOLDOWN_SEC:
                         _notified_cache[block_id] = ts
-                    if machine and age < EMAIL_MACHINE_COOLDOWN:
-                        if machine not in _machine_email_sent or ts > _machine_email_sent[machine]:
-                            _machine_email_sent[machine] = ts
                 except Exception:
                     pass
     except Exception as e:
@@ -549,18 +543,6 @@ def _should_notify(alert: dict) -> bool:
     if key in _notified_cache:
         return False
     _notified_cache[key] = now
-    return True
-
-
-def _should_email(alert: dict) -> bool:
-    """Rate-limit emails to once per machine per EMAIL_MACHINE_COOLDOWN seconds."""
-    machine = alert.get("source_machine", "unknown")
-    now     = time.time()
-    last    = _machine_email_sent.get(machine, 0)
-    if now - last < EMAIL_MACHINE_COOLDOWN:
-        logger.debug("Email suppressed (machine cooldown): %s", machine)
-        return False
-    _machine_email_sent[machine] = now
     return True
 
 
@@ -631,8 +613,8 @@ def dispatch(alert: dict) -> None:
     if SOUND_ENABLED:
         channels_used.append("sound")
 
-    # 3. Email (rate-limited: one email per machine per hour)
-    if EMAIL_ENABLED and _should_email(alert):
+    # 3. Email — send immediately for every new block that meets priority
+    if EMAIL_ENABLED:
         if send_email_notification(alert):
             channels_used.append("email")
 
@@ -667,8 +649,8 @@ def start_notifier(
     logger.info("=" * 60)
     logger.info("Watching: %s", alerts_file)
     logger.info(
-        "Config: min_priority=%s  cooldown=%ds  machine_email_cooldown=%ds  email=%s  sound=%s",
-        MIN_PRIORITY, COOLDOWN_SEC, EMAIL_MACHINE_COOLDOWN,
+        "Config: min_priority=%s  cooldown=%ds  email=%s  sound=%s",
+        MIN_PRIORITY, COOLDOWN_SEC,
         "enabled" if EMAIL_ENABLED else "disabled",
         "enabled" if SOUND_ENABLED else "disabled",
     )

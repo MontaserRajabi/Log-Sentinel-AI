@@ -166,6 +166,11 @@ td.time-col{width:10%;font-size:0.7rem;}
 .fb-btn:hover{border-color:var(--critical);color:var(--critical);}
 .fb-btn.sent{color:var(--success);border-color:rgba(63,185,80,0.3);cursor:default;}
 
+/* ── CVE EXPAND ROW ──────────────────────────────────────────────── */
+.cve-detail-row{background:var(--bg) !important;}
+.cve-detail-row:hover{background:var(--bg) !important;}
+.cve-detail-row td{max-width:none;overflow:visible;white-space:normal;}
+
 /* ── CHART ───────────────────────────────────────────────────────── */
 .chart-wrap{height:140px;background:var(--surface);padding:10px 16px 8px;flex-shrink:0;border-top:1px solid var(--border);}
 
@@ -332,7 +337,6 @@ td.time-col{width:10%;font-size:0.7rem;}
   <header class="topbar">
     <div class="topbar-left">
       <span class="page-title">Dashboard</span>
-      <span class="live-badge"><span class="live-dot"></span>Live</span>
     </div>
     <div class="topbar-right">
       <div class="machines-wrap" id="machines-wrap">
@@ -518,6 +522,39 @@ let currentFilter = 'ALL';
 let currentTab    = 'alerts';
 const REFRESH_MS  = 5000;
 let renderedAlertIds = new Set();
+let expandedRows     = new Set();
+
+const THREAT_LABELS = {
+  brute_force:         'Multiple failed login attempts',
+  credential_stuffing: 'Password stuffing attack',
+  privilege_esc:       'Unauthorized privilege escalation',
+  lateral_movement:    'Suspicious lateral movement',
+  data_exfiltration:   'Possible data exfiltration',
+  log_tamper:          'Security log tampering',
+  malware:             'Malware behavior detected',
+  ransomware:          'Ransomware-like activity',
+  reconnaissance:      'Network reconnaissance',
+  suspicious_process:  'Suspicious process executed',
+  persistence:         'Malicious persistence detected',
+  injection:           'Process injection attempt',
+  port_scan:           'Port scan detected',
+  dos:                 'Denial-of-service activity',
+  phishing:            'Phishing-related activity',
+  c2:                  'Command & control communication',
+  anomaly:             'Unusual system behavior',
+};
+
+function friendlyDescription(r) {
+  if (r.threats && r.threats.length) {
+    return r.threats
+      .map(t => THREAT_LABELS[t] || t.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase()))
+      .join('  •  ');
+  }
+  let raw = r.log || '';
+  raw = raw.replace(/^\[.*?\]\s*/,'').replace(/EventID=\d+\s*/gi,'').replace(/\s+/g,' ').trim();
+  if (raw.length > 120) raw = raw.slice(0,117) + '…';
+  return raw || '—';
+}
 
 const LABEL_OPTIONS = [
   { value:'',               text:'— select —' },
@@ -634,20 +671,30 @@ function normalise(raw) {
       ? r.threat_categories.join(', ')
       : (r.description||r.message||r.log||r.event||r.raw||JSON.stringify(r));
     const level = r.priority || r.level || r.severity || (hasScore ? 'LOW' : null);
-    return {
-      id:       r.block_id||r.id||'',
-      log:      logText,
-      source:   r.source||r.host||'backend',
-      machine:  r.source_machine||r.source||'',
-      os:       (r.os||'').toLowerCase(),
-      score:    dispScore !== null ? dispScore.toFixed(1) : '—',
-      rawScore: rawScore !== null ? rawScore : 0,
-      level:    level,
-      label:    r.label||'',
-      time:     r.alert_at||r.collected_at||r.timestamp||r.time||'',
-      threats:  r.threat_categories||[],
-      events:   r.num_events||0,
+    const partial = {
+      id:        r.block_id||r.id||'',
+      expandKey: r.block_id
+                   ? `${r.block_id}|${(r.threat_categories||[]).join(',')}`
+                   : (r.id||''),
+      log:       logText,
+      source:    r.source||r.host||'backend',
+      machine:   r.source_machine||r.source||'',
+      os:        (r.os||'').toLowerCase(),
+      score:     dispScore !== null ? dispScore.toFixed(1) : '—',
+      rawScore:  rawScore !== null ? rawScore : 0,
+      level:     level,
+      label:     r.label||'',
+      time:      r.alert_at||r.collected_at||r.timestamp||r.time||'',
+      threats:   r.threat_categories||[],
+      events:    r.num_events||0,
+      cve_ids:   r.cve_ids||[],
+      cwe:       r.cwe||'',
+      vuln_name: r.vulnerability_name||'',
+      vuln_desc: r.vulnerability_desc||'',
+      tip:       r.remediation_tip||'',
     };
+    partial.friendly = friendlyDescription(partial);
+    return partial;
   });
 }
 
@@ -732,17 +779,44 @@ function renderTable() {
   if (currentMachine) rows = rows.filter(r=>r.machine===currentMachine);
   rows.forEach(r=>{
     const tr = document.createElement('tr');
+    tr.style.cursor = (r.vuln_name || r.cve_ids.length || r.tip) ? 'pointer' : '';
     const isAlerts = currentTab==='alerts';
     const machineLabel = r.machine ? r.machine.split('.')[0] : '—';
+    const timeStr = r.time ? new Date(r.time).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : '—';
     tr.innerHTML=`
-      <td class="log-col" title="${r.log}">${r.log}</td>
+      <td class="log-col" title="${r.log}">${r.friendly}</td>
       <td class="src-col" title="${r.machine||''}">${machineLabel}</td>
       <td class="scr-col">${r.score}</td>
       <td class="lvl-col">${lvlBadge(r.level)}</td>
       <td class="lbl-col">${isAlerts?buildLabelSelect(r):'—'}</td>
       <td class="fb-col">${isAlerts?buildFeedbackBtn(r):'—'}</td>
-      <td class="time-col">${(r.time||'').split('T').pop().split('.')[0]}</td>`;
+      <td class="time-col">${timeStr}</td>`;
     tbody.appendChild(tr);
+
+    if (r.vuln_name || r.cve_ids.length || r.tip) {
+      const detail = document.createElement('tr');
+      detail.className = 'cve-detail-row';
+      detail.style.display = expandedRows.has(r.expandKey) ? 'table-row' : 'none';
+      const cveLinks = r.cve_ids.map(id =>
+        `<a href="https://nvd.nist.gov/vuln/detail/${id}" target="_blank"
+            style="color:var(--accent);margin-right:8px;text-decoration:none;">${id}</a>`
+      ).join('');
+      detail.innerHTML = `<td colspan="7" style="padding:14px 18px;background:rgba(0,0,0,.35);border-left:3px solid var(--accent);">
+        <div style="font-size:.75rem;line-height:1.7;font-family:var(--mono);">
+          ${r.vuln_name ? `<div style="color:var(--text);font-weight:600;margin-bottom:6px;font-size:.8rem;">&#x1F6E1; ${r.vuln_name}${r.cwe ? ` <span style="color:var(--accent);font-weight:400;">&mdash; ${r.cwe}</span>` : ''}</div>` : ''}
+          ${r.vuln_desc ? `<div style="color:var(--muted);margin-bottom:10px;">${r.vuln_desc}</div>` : ''}
+          ${r.cve_ids.length ? `<div style="margin-bottom:10px;">&#x1F517; <b style="color:var(--accent);">CVE References:</b> ${cveLinks}</div>` : ''}
+          ${r.tip ? `<div style="color:var(--success);white-space:pre-line;line-height:1.9;">&#x1F4CB; <b>Remediation Steps:</b><br>${r.tip}</div>` : ''}
+        </div>
+      </td>`;
+      tbody.appendChild(detail);
+      tr.addEventListener('click', () => {
+        const shown = detail.style.display !== 'none';
+        detail.style.display = shown ? 'none' : 'table-row';
+        if (shown) expandedRows.delete(r.expandKey);
+        else       expandedRows.add(r.expandKey);
+      });
+    }
   });
 }
 
