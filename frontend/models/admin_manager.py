@@ -83,12 +83,14 @@ def _file_load() -> dict:
                 u = parts[0].strip()
                 if not u:
                     continue
+                raw_verified = parts[6].strip() if len(parts) > 6 else "1"
                 admins[u] = {
                     "hash":        parts[1].strip(),
                     "backend_url": parts[2].strip() if len(parts) > 2 else "",
                     "os_type":     parts[3].strip() if len(parts) > 3 else "auto",
                     "email":       parts[4].strip() if len(parts) > 4 else "",
                     "role":        parts[5].strip() if len(parts) > 5 else "admin",
+                    "verified":    raw_verified != "0",
                 }
     except FileNotFoundError:
         pass
@@ -99,7 +101,8 @@ def _file_save(admins: dict) -> None:
     with open(_ADMINS_FILE, "w") as f:
         for u, r in admins.items():
             h = r["hash"] if len(r["hash"]) == 64 else _hash_password(r["hash"])
-            f.write(f"{u},{h},{r.get('backend_url','')},{r.get('os_type','auto')},{r.get('email','')},{r.get('role','user')}\n")
+            verified_flag = "1" if r.get("verified", True) else "0"
+            f.write(f"{u},{h},{r.get('backend_url','')},{r.get('os_type','auto')},{r.get('email','')},{r.get('role','user')},{verified_flag}\n")
 
 
 # ── Core Cosmos helpers ────────────────────────────────────────────────────
@@ -120,6 +123,7 @@ def _upsert(username: str, rec: dict) -> None:
         "os_type":        rec.get("os_type", "auto"),
         "email":          rec.get("email", ""),
         "source_machine": rec.get("source_machine", ""),
+        "verified":       bool(rec.get("verified", True)),
     }
     try:
         c.upsert_item(doc)
@@ -140,6 +144,7 @@ def _read_user(username: str) -> dict | None:
             "os_type":        item.get("os_type", "auto"),
             "email":          item.get("email", ""),
             "source_machine": item.get("source_machine", ""),
+            "verified":       bool(item.get("verified", True)),
         }
     except cosmos_exc.CosmosResourceNotFoundError:
         return None
@@ -164,6 +169,7 @@ def load_admins() -> dict:
                 "os_type":        item.get("os_type", "auto"),
                 "email":          item.get("email", ""),
                 "source_machine": item.get("source_machine", ""),
+                "verified":       bool(item.get("verified", True)),
             }
             for item in items
         }
@@ -183,7 +189,8 @@ def save_admins(admins: dict) -> None:
 
 def add_admin(username: str, password: str,
               backend_url: str = "", os_type: str = "auto",
-              email: str = "", role: str = "user") -> bool:
+              email: str = "", role: str = "user",
+              verified: bool = True) -> bool:
     if _read_user(username) is not None:
         return False
     _upsert(username, {
@@ -192,7 +199,26 @@ def add_admin(username: str, password: str,
         "backend_url": backend_url,
         "os_type":     os_type if os_type in OS_CHOICES else "auto",
         "email":       email.strip().lower(),
+        "verified":    verified,
     })
+    return True
+
+
+def is_verified(username: str) -> bool:
+    """Return True if the user's email has been verified (or if the field is absent for backward compat)."""
+    rec = _read_user(username)
+    if rec is None:
+        return False
+    return rec.get("verified", True)
+
+
+def mark_verified(username: str) -> bool:
+    """Mark a user's email as verified. Returns False if the user does not exist."""
+    rec = _read_user(username)
+    if rec is None:
+        return False
+    rec["verified"] = True
+    _upsert(username, rec)
     return True
 
 

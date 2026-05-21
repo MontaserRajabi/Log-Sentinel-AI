@@ -42,6 +42,7 @@ try:
         update_admin_password, find_admin_by_email,
         get_user_role, update_user_role,
         get_user_machine, update_user_machine,
+        is_verified, mark_verified,
     )
     from models.detector import load_templates, save_templates
     _import_error = None
@@ -151,6 +152,10 @@ def login_page():
         )
 
         if is_superadmin or check_admin(username, password):
+            # Block access until email is verified (superadmin bypasses this)
+            if not is_superadmin and not is_verified(username):
+                return render_template("login.html", error="",
+                                       unverified_username=username)
             stored_url  = get_admin_backend_url(username) if not is_superadmin else ""
             backend_url = (stored_url or BACKEND_URL).rstrip("/")
             os_type = request.form.get("os_type", "").strip()
@@ -166,7 +171,7 @@ def login_page():
             return redirect(url_for("dashboard"))
         else:
             error = "Invalid username or password."
-    return render_template("login.html", error=error)
+    return render_template("login.html", error=error, unverified_username="")
 
 
 @app.route("/logout")
@@ -181,13 +186,24 @@ def logout():
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
-    # If already logged in, go to dashboard
     if session.get("admin"):
         return redirect(url_for("dashboard"))
 
     error         = ""
     form_username = ""
     form_email    = ""
+    pending       = False
+
+    # Handle redirect-back from verify_email on error
+    if request.method == "GET":
+        if request.args.get("expired") == "1":
+            error = "Verification link expired. Please register again."
+        elif request.args.get("taken") == "1":
+            error = "That username was taken while waiting for verification. Please choose another."
+        # Show "check your email" screen after a successful POST redirect
+        if request.args.get("pending") == "1":
+            pending    = True
+            form_email = session.pop("_reg_pending_email", "")
 
     if request.method == "POST":
         username         = request.form.get("username", "").strip()
@@ -195,7 +211,6 @@ def register():
         password         = request.form.get("password", "")
         confirm_password = request.form.get("confirm_password", "")
 
-        # Validate
         import re
         if not re.match(r'^[A-Za-z0-9_\-]{3,32}$', username):
             error = "Username must be 3–32 characters (letters, numbers, _ -)."
@@ -205,15 +220,40 @@ def register():
             error = pw_err
         elif password != confirm_password:
             error = "Passwords do not match."
-        elif not add_admin(username, password, email=email):
-            error = "Username already taken. Please choose another."
         else:
-            # Success — auto-login
-            session["admin"]       = username
-            session["backend_url"] = BACKEND_URL
-            session["os_type"]     = "auto"
-            session["role"]        = "user"
-            return redirect(url_for("dashboard"))
+            smtp_ready = all([
+                os.getenv("NOTIFY_EMAIL_FROM"),
+                os.getenv("NOTIFY_EMAIL_USER"),
+                os.getenv("NOTIFY_EMAIL_PASS"),
+            ])
+            if not smtp_ready:
+                error = ("Email verification is required but email sending is not configured on this server. "
+                         "Please ask your administrator to create an account for you.")
+            elif username.lower() in {u.lower() for u in load_admins()}:
+                error = "Username already taken. Please choose another."
+            else:
+                # Create account immediately as unverified so the username is reserved
+                if not add_admin(username, password, email=email, verified=False):
+                    error = "Username already taken. Please choose another."
+                else:
+                    now = datetime.now(timezone.utc).replace(tzinfo=None)
+                    # Prune stale tokens for this user before creating a new one
+                    for t in [t for t, v in _pending_registrations.items()
+                               if now > v["expires_at"] or v.get("username") == username]:
+                        del _pending_registrations[t]
+                    token = secrets.token_urlsafe(32)
+                    _pending_registrations[token] = {
+                        "username"  : username,
+                        "expires_at": now + timedelta(hours=24),
+                    }
+                    if _send_verification_email(email, username, token):
+                        session["_reg_pending_email"] = email
+                        return redirect(url_for("register", pending="1"))
+                    else:
+                        # Roll back — delete the unverified account
+                        delete_admin(username)
+                        del _pending_registrations[token]
+                        error = "Could not send the verification email. Please try again later."
 
         form_username = username
         form_email    = email
@@ -221,7 +261,77 @@ def register():
     return render_template("register.html",
                            error=error,
                            form_username=form_username,
-                           form_email=form_email)
+                           form_email=form_email,
+                           pending=pending)
+
+
+@app.route("/verify-email")
+def verify_email():
+    """User clicks the link in the verification email; account is marked verified here."""
+    token  = request.args.get("token", "")
+    record = _pending_registrations.get(token)
+    now    = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    if not record or now > record["expires_at"]:
+        return redirect(url_for("register", expired="1"))
+
+    username = record["username"]
+    del _pending_registrations[token]
+
+    if not mark_verified(username):
+        # Account was deleted in the meantime (edge case)
+        return redirect(url_for("register", expired="1"))
+
+    logging.info("Email verified for user: %s", username)
+
+    session["admin"]       = username
+    session["backend_url"] = BACKEND_URL
+    session["os_type"]     = "auto"
+    session["role"]        = get_user_role(username)
+    session["source_machine"] = get_user_machine(username)
+    return redirect(url_for("dashboard"))
+
+
+@app.route("/resend-verification", methods=["POST"])
+def resend_verification():
+    """Resend the verification email to an unverified user."""
+    username = request.form.get("username", "").strip()
+    if not username or is_verified(username):
+        return redirect(url_for("login_page"))
+
+    email = get_admin_email(username)
+    if not email:
+        return render_template("login.html", error="No email on file — contact your administrator.",
+                               unverified_username="")
+
+    smtp_ready = all([
+        os.getenv("NOTIFY_EMAIL_FROM"),
+        os.getenv("NOTIFY_EMAIL_USER"),
+        os.getenv("NOTIFY_EMAIL_PASS"),
+    ])
+    if not smtp_ready:
+        return render_template("login.html",
+                               error="Email sending is not configured on this server.",
+                               unverified_username="")
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    # Remove any old tokens for this user
+    for t in [t for t, v in _pending_registrations.items() if v.get("username") == username]:
+        del _pending_registrations[t]
+
+    token = secrets.token_urlsafe(32)
+    _pending_registrations[token] = {
+        "username"  : username,
+        "expires_at": now + timedelta(hours=24),
+    }
+    if _send_verification_email(email, username, token):
+        session["_reg_pending_email"] = email
+        return redirect(url_for("register", pending="1"))
+    else:
+        del _pending_registrations[token]
+        return render_template("login.html",
+                               error="Could not send verification email. Try again later.",
+                               unverified_username=username)
 
 
 # ---------------------------------------------------------------------------
@@ -285,9 +395,10 @@ import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
-_reset_tokens: dict[str, dict] = {}   # token → {username, expires_at}
-_pending_pairs: dict[str, dict] = {}  # code  → {machine, expires_at}
-_health_cache:  dict[str, dict] = {}  # machine → latest health snapshot
+_reset_tokens:            dict[str, dict] = {}  # token → {username, expires_at}
+_pending_pairs:           dict[str, dict] = {}  # code  → {machine, expires_at}
+_health_cache:            dict[str, dict] = {}  # machine → latest health snapshot
+_pending_registrations:   dict[str, dict] = {}  # token → {username, password, email, expires_at}
 
 
 def _send_reset_email(to_email: str, username: str, token: str) -> bool:
@@ -338,6 +449,57 @@ def _send_reset_email(to_email: str, username: str, token: str) -> bool:
         return True
     except Exception as e:
         logging.error("Reset email failed: %s", e)
+        return False
+
+
+def _send_verification_email(to_email: str, username: str, token: str) -> bool:
+    """Send an email address verification link to a newly registered user."""
+    email_from = os.getenv("NOTIFY_EMAIL_FROM", "")
+    email_user = os.getenv("NOTIFY_EMAIL_USER", "")
+    email_pass = os.getenv("NOTIFY_EMAIL_PASS", "")
+    email_host = os.getenv("NOTIFY_EMAIL_HOST", "smtp.gmail.com")
+    email_port = int(os.getenv("NOTIFY_EMAIL_PORT", 587))
+
+    if not all([email_from, email_user, email_pass]):
+        logging.warning("Verification email: SMTP credentials not configured in .env")
+        return False
+
+    verify_url = url_for("verify_email", token=token, _external=True)
+
+    body = f"""
+    <html><body style="font-family:Arial,sans-serif;color:#222;">
+    <h2 style="color:#0066ff;">Log Sentinel AI — Verify Your Email</h2>
+    <p>Hi <strong>{username}</strong>,</p>
+    <p>Thanks for registering! Click the button below to verify your email and activate your account.</p>
+    <p style="margin:24px 0;">
+        <a href="{verify_url}"
+           style="background:#0066ff;color:#fff;padding:12px 24px;
+                  text-decoration:none;border-radius:4px;font-weight:bold;">
+           Verify Email Address
+        </a>
+    </p>
+    <p style="color:#888;font-size:12px;">
+        This link expires in 24 hours.<br>
+        If you did not create this account, you can safely ignore this email.
+    </p>
+    </body></html>
+    """
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = "Log Sentinel AI — Verify Your Email"
+    msg["From"]    = email_from
+    msg["To"]      = to_email
+    msg.attach(MIMEText(body, "html"))
+
+    try:
+        with smtplib.SMTP(email_host, email_port, timeout=10) as server:
+            server.ehlo()
+            server.starttls()
+            server.login(email_user, email_pass)
+            server.sendmail(email_from, to_email, msg.as_string())
+        return True
+    except Exception as e:
+        logging.error("Verification email failed: %s", e)
         return False
 
 
@@ -732,7 +894,7 @@ def get_health_machines():
             if updated_dt.tzinfo is None:
                 updated_dt = updated_dt.replace(tzinfo=_tz.utc)
             delta = (now - updated_dt).total_seconds()
-            result[machine] = {"online": delta < THRESHOLD, "last_seen": updated}
+            result[machine] = {"online": delta < THRESHOLD, "last_seen": updated, "os": data.get("os", "")}
         except Exception:
             result[machine] = {"online": False, "last_seen": updated}
     return jsonify(result)

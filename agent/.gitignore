@@ -1,0 +1,24 @@
+# Built Windows executable
+*.exe
+
+# PyInstaller build artifacts
+build/
+dist/
+*.spec
+
+# Runtime flags
+.startup_asked
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# OS junk
+.DS_Store
+Thumbs.db

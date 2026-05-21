@@ -1,0 +1,3 @@
+requests>=2.31
+watchdog>=4.0
+psutil>=5.9

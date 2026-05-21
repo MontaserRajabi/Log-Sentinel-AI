@@ -58,6 +58,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from ingest.log_collector import start_collector   # noqa: E402
+from cve_lookup import get_cve_info                # noqa: E402
 
 # ── Logging ────────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -77,6 +78,9 @@ MODEL_FILE    = PROJECT_ROOT / "models" / "isoforest.pkl"
 META_FILE     = PROJECT_ROOT / "models" / "feature_meta.json"
 FEATURES_FILE         = PROJECT_ROOT / "data" / "features" / "block_features.parquet"
 WINDOWS_FEATURES_FILE = PROJECT_ROOT / "data" / "features" / "windows_block_features.parquet"
+
+# Auto-retrain: trigger a background retrain after this many new feedback labels
+AUTO_RETRAIN_THRESHOLD = int(os.environ.get("AUTO_RETRAIN_THRESHOLD", 10))
 
 # ── Collector state ────────────────────────────────────────────────────────────
 _collector_thread: threading.Thread | None = None
@@ -256,6 +260,7 @@ def _emit_rule_based_alerts(
                 continue
             _emit_rule_based_alerts._seen.add(sig)
 
+            cve_info = get_cve_info([cat])
             alert = {
                 "alert_at"          : now_str,
                 "block_id"          : block_id,
@@ -267,6 +272,11 @@ def _emit_rule_based_alerts(
                 "threat_categories" : [cat],
                 "priority"          : priority,
                 "rule_based"        : True,
+                "cve_ids"           : cve_info["cve_ids"],
+                "cwe"               : cve_info["cwe"],
+                "vulnerability_name": cve_info["name"],
+                "vulnerability_desc": cve_info["description"],
+                "remediation_tip"   : cve_info["tip"],
             }
             alerts_out.parent.mkdir(parents=True, exist_ok=True)
             with open(alerts_out, "a") as f:
@@ -277,10 +287,13 @@ def _emit_rule_based_alerts(
                 block_id, cat, hits[cat], priority,
             )
             emitted.append({
-                "priority"   : priority,
-                "description": f"{priority} threat detected — category: {cat.replace('_', ' ')} ({hits[cat]} indicator(s))",
-                "cvss"       : alert["cvss_score"],
-                "block_id"   : block_id,
+                "priority"         : priority,
+                "description"      : f"{priority} — {cve_info['name']} ({hits[cat]} indicator(s))",
+                "cvss"             : alert["cvss_score"],
+                "block_id"         : block_id,
+                "vulnerability_name": cve_info["name"],
+                "cve_ids"          : cve_info["cve_ids"],
+                "remediation_tip"  : cve_info["tip"],
             })
 
     return emitted
@@ -363,11 +376,16 @@ def ingest_logs(logs: list[dict]):
                     for _, row in df_scored[df_scored["is_anomaly"]].iterrows():
                         alert = emit_alert(row, EVENTS_FILE, ALERTS_FILE)
                         if alert:
+                            cats     = alert.get("threat_categories") or []
+                            cve_info = get_cve_info(cats)
                             generated_alerts.append({
-                                "priority"   : alert.get("priority", "MEDIUM"),
-                                "description": f"{alert.get('priority','MEDIUM')} threat detected — score {alert.get('anomaly_score',0):.4f} | categories: {', '.join(alert.get('threat_categories') or ['unknown'])}",
-                                "cvss"       : alert.get("cvss_score"),
-                                "block_id"   : alert.get("block_id"),
+                                "priority"          : alert.get("priority", "MEDIUM"),
+                                "description"       : f"{alert.get('priority','MEDIUM')} — {cve_info['name']} | score {alert.get('anomaly_score',0):.4f}",
+                                "cvss"              : alert.get("cvss_score"),
+                                "block_id"          : alert.get("block_id"),
+                                "vulnerability_name": cve_info["name"],
+                                "cve_ids"           : cve_info["cve_ids"],
+                                "remediation_tip"   : cve_info["tip"],
                             })
         except Exception as _e:
             logger.warning("Ingest scoring error: %s", _e)
@@ -435,7 +453,7 @@ def get_alerts(
     alerts = _read_jsonl(ALERTS_FILE, limit=limit)
     labels = _load_labels()
 
-    # Merge labels into alerts
+    # Merge labels and CVE info into alerts
     for a in alerts:
         bid = a.get("block_id", "")
         if bid in labels:
@@ -444,6 +462,16 @@ def get_alerts(
         else:
             a["label"] = None
             a["note"]  = ""
+
+        # Enrich with CVE info if not already stored in the alert record
+        if not a.get("vulnerability_name"):
+            cats     = a.get("threat_categories") or []
+            cve_info = get_cve_info(cats)
+            a["vulnerability_name"] = cve_info["name"]
+            a["vulnerability_desc"] = cve_info["description"]
+            a["cve_ids"]            = cve_info["cve_ids"]
+            a["cwe"]                = cve_info["cwe"]
+            a["remediation_tip"]    = cve_info["tip"]
 
     # Apply filters
     if priority != "all":
@@ -491,8 +519,15 @@ def label_alert(block_id: str, body: LabelRequest):
     }
     _save_labels(labels)
 
-    logger.info("Alert labelled: block_id=%s label=%s", block_id, body.label)
-    return {"block_id": block_id, "label": body.label, "status": "saved"}
+    auto_triggered = _auto_retrain_if_needed(labels)
+    logger.info("Alert labelled: block_id=%s label=%s auto_retrain=%s",
+                block_id, body.label, auto_triggered)
+    return {
+        "block_id"       : block_id,
+        "label"          : body.label,
+        "status"         : "saved",
+        "auto_retrain"   : auto_triggered,
+    }
 
 
 # ── Real-time alert stream (Server-Sent Events) ────────────────────────────────
@@ -575,6 +610,83 @@ def get_metrics():
         return json.loads(METRICS_FILE.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         raise HTTPException(status_code=500, detail=f"Corrupt metrics file: {exc}")
+
+
+@app.get("/metrics/feedback", tags=["Model"])
+def get_feedback_metrics():
+    """
+    Live model performance metrics computed from user feedback labels.
+    Unlike /metrics (which needs offline HDFS ground truth), this uses
+    the labels admins have submitted via the dashboard — so it always
+    reflects real-world performance on actual production alerts.
+
+    Returns precision, detection rate, label distribution, and the
+    contamination value used in the last retrain.
+    """
+    labels = _load_labels()
+    if not labels:
+        return {
+            "total_labelled"   : 0,
+            "message"          : "No feedback labels yet. Label some alerts on the dashboard to see live metrics.",
+        }
+
+    counts = {"true_positive": 0, "false_positive": 0,
+              "true_negative": 0, "false_negative": 0}
+    for v in labels.values():
+        lbl = v.get("label", "")
+        if lbl in counts:
+            counts[lbl] += 1
+
+    tp = counts["true_positive"]
+    fp = counts["false_positive"]
+    fn = counts["false_negative"]
+    total = sum(counts.values())
+
+    precision     = round(tp / (tp + fp), 4) if (tp + fp) > 0 else None
+    recall        = round(tp / (tp + fn), 4) if (tp + fn) > 0 else None
+    f1            = round(2 * precision * recall / (precision + recall), 4) \
+                    if precision and recall else None
+
+    # Last retrain contamination from retrain_log.jsonl
+    last_contamination = None
+    last_retrain_at    = None
+    if RETRAIN_FILE.exists():
+        try:
+            for line in RETRAIN_FILE.read_text(encoding="utf-8").splitlines():
+                rec = json.loads(line)
+                if rec.get("event") == "model_retrained":
+                    last_contamination = rec.get("contamination")
+                    last_retrain_at    = rec.get("timestamp")
+        except Exception:
+            pass
+
+    # How many new labels since the last retrain
+    labels_since_retrain = total
+    if last_retrain_at:
+        try:
+            retrain_ts = datetime.fromisoformat(last_retrain_at)
+            labels_since_retrain = sum(
+                1 for v in labels.values()
+                if datetime.fromisoformat(v.get("labelled_at", "2000-01-01")) > retrain_ts
+            )
+        except Exception:
+            pass
+
+    return {
+        "total_labelled"         : total,
+        "label_counts"           : counts,
+        "precision"              : precision,
+        "recall"                 : recall,
+        "f1_score"               : f1,
+        "last_retrain_at"        : last_retrain_at,
+        "last_contamination"     : last_contamination,
+        "labels_since_retrain"   : labels_since_retrain,
+        "auto_retrain_threshold" : AUTO_RETRAIN_THRESHOLD,
+        "note": (
+            "Precision and recall are computed from user-labelled alerts only. "
+            "Recall requires false_negative labels to be meaningful."
+        ),
+    }
 
 
 # ── Raw events ────────────────────────────────────────────────────────────────
@@ -740,6 +852,52 @@ def get_templates():
 # FEEDBACK + MODEL RETRAINING
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _count_labels_since_last_retrain(labels: dict) -> int:
+    """Count how many labels were submitted after the last successful retrain."""
+    last_retrain_at = None
+    if RETRAIN_FILE.exists():
+        try:
+            for line in RETRAIN_FILE.read_text(encoding="utf-8").splitlines():
+                rec = json.loads(line)
+                if rec.get("event") == "model_retrained":
+                    last_retrain_at = rec.get("timestamp")
+        except Exception:
+            pass
+
+    if last_retrain_at is None:
+        return len(labels)  # no retrain yet — all labels are new
+    try:
+        retrain_ts = datetime.fromisoformat(last_retrain_at)
+        return sum(
+            1 for v in labels.values()
+            if datetime.fromisoformat(v.get("labelled_at", "2000-01-01")) > retrain_ts
+        )
+    except Exception:
+        return len(labels)
+
+
+def _auto_retrain_if_needed(labels: dict) -> bool:
+    """
+    Trigger a background retrain if enough new labels have accumulated
+    since the last retrain.  Returns True if retrain was triggered.
+    """
+    global _retrain_thread, _retrain_status
+    if _retrain_thread is not None and _retrain_thread.is_alive():
+        return False  # already running
+    if not FEATURES_FILE.exists():
+        return False  # no training data yet
+    new_label_count = _count_labels_since_last_retrain(labels)
+    if new_label_count < AUTO_RETRAIN_THRESHOLD:
+        return False
+
+    logger.info(
+        "Auto-retrain triggered: %d new labels since last retrain (threshold=%d).",
+        new_label_count, AUTO_RETRAIN_THRESHOLD,
+    )
+    # Reuse the existing retrain_model logic by calling it directly
+    retrain_model()
+    return True
+
 @app.post("/feedback", tags=["Model"])
 def submit_feedback(body: LabelRequest, block_id: str = "batch"):
     """
@@ -779,12 +937,19 @@ def submit_feedback(body: LabelRequest, block_id: str = "batch"):
             "timestamp" : datetime.now().isoformat(timespec="seconds"),
         }) + "\n")
 
-    logger.info("Feedback submitted: block_id=%s  label=%s", block_id, body.label)
+    auto_triggered = _auto_retrain_if_needed(labels)
+    logger.info("Feedback submitted: block_id=%s label=%s auto_retrain=%s",
+                block_id, body.label, auto_triggered)
     return {
-        "status"   : "saved",
-        "block_id" : block_id,
-        "label"    : body.label,
-        "message"  : "Feedback saved. Run POST /model/retrain to update the model.",
+        "status"        : "saved",
+        "block_id"      : block_id,
+        "label"         : body.label,
+        "auto_retrain"  : auto_triggered,
+        "message"       : (
+            "Auto-retrain started in background."
+            if auto_triggered else
+            f"Feedback saved. Auto-retrain triggers after {AUTO_RETRAIN_THRESHOLD} new labels."
+        ),
     }
 
 
@@ -865,9 +1030,13 @@ def retrain_model():
                     {k: label_map.get(v["label"]) for k, v in labels.items()}
                 )
                 # Auto-adjust contamination based on confirmed anomaly ratio
-                n_labelled  = df["feedback_label"].notna().sum()
-                n_anomalies = (df["feedback_label"] == -1).sum()
-                contamination = max(0.01, min(0.5, float(n_anomalies / len(df))))
+                # Divide by n_labelled (not len(df)) — unlabelled rows must not dilute the ratio
+                n_labelled  = int(df["feedback_label"].notna().sum())
+                n_anomalies = int((df["feedback_label"] == -1).sum())
+                if n_labelled >= 5:
+                    contamination = max(0.01, min(0.5, float(n_anomalies / n_labelled)))
+                else:
+                    contamination = 0.01
                 logger.info(
                     "Retrain: %d labelled samples, %d confirmed anomalies → contamination=%.4f",
                     n_labelled, n_anomalies, contamination,

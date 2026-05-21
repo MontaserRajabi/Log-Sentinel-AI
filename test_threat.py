@@ -1,204 +1,365 @@
 """
 test_threat.py — Log Sentinel AI
 ==================================
-Injects fake threat events directly through the collector's scoring
-pipeline and writes alerts to alerts.jsonl.
+Executes REAL threat simulations on this Windows machine.
+The running agent picks up the generated events from the Windows
+Event Log and sends them to the dashboard automatically.
 
-No Windows admin rights needed — bypasses the Event Log entirely.
+REQUIREMENTS:
+  - Run as Administrator (right-click → Run as administrator)
+  - The agent (launcher.py or START.bat) must be running first
 
 Usage:
-    python test_threat.py                  # default: brute_force
-    python test_threat.py --scenario all
-    python test_threat.py --scenario privilege_esc
+    python test_threat.py                  # run all scenarios
     python test_threat.py --scenario brute_force
-    python test_threat.py --scenario network
-    python test_threat.py --scenario dos
-    python test_threat.py --scenario log_tamper
+    python test_threat.py --list           # show available scenarios
+    python test_threat.py --delay 10       # wait 10s between scenarios
 """
 
-import sys
-import json
-import random
 import argparse
-from pathlib import Path
-from datetime import datetime
+import base64
+import ctypes
+import os
+import platform
+import subprocess
+import sys
+import time
 
-PROJECT_ROOT = Path(__file__).resolve().parent
-sys.path.insert(0, str(PROJECT_ROOT / "src"))
+# ── Force UTF-8 output on Windows (avoids UnicodeEncodeError for ⚠ ✓ → etc.)
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
-ALERTS_FILE = PROJECT_ROOT / "data" / "staging" / "alerts.jsonl"
-EVENTS_FILE = PROJECT_ROOT / "data" / "staging" / "events.jsonl"
-MODEL_FILE  = PROJECT_ROOT / "models" / "isoforest.pkl"
-META_FILE   = PROJECT_ROOT / "models" / "feature_meta.json"
+# ── Colour output ──────────────────────────────────────────────────────────
+GRN = "\033[92m"; YEL = "\033[93m"; RED = "\033[91m"
+CYN = "\033[96m"; DIM = "\033[2m";  RST = "\033[0m"
+
+def ok(msg):   print(f"  {GRN}✓{RST}  {msg}")
+def warn(msg): print(f"  {YEL}⚠{RST}  {msg}")
+def err(msg):  print(f"  {RED}✗{RST}  {msg}")
+def info(msg): print(f"  {CYN}→{RST}  {msg}")
+
+def _run(cmd, timeout=15) -> bool:
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        return r.returncode == 0
+    except Exception:
+        return False
 
 
-def _ip():
-    return f"{random.randint(10,192)}.{random.randint(0,255)}.{random.randint(0,255)}.{random.randint(1,254)}"
+# ── Admin check ────────────────────────────────────────────────────────────
 
-def _port():
-    return random.randint(1024, 65535)
+def is_admin() -> bool:
+    if platform.system() != "Windows":
+        return os.geteuid() == 0
+    try:
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())
+    except Exception:
+        return False
 
-def _rid():
-    return random.randint(1000, 9999)
 
+# ══════════════════════════════════════════════════════════════════════════
+# SCENARIO 1 — Brute Force Login
+# Windows Event ID 4625 (An account failed to log on)
+# ══════════════════════════════════════════════════════════════════════════
+
+def sim_brute_force(count: int = 6):
+    """
+    Simulate a brute-force attack by attempting multiple failed logons.
+    Uses the Windows LogonUser API directly — generates real Event ID 4625
+    entries in the Security log without any network calls.
+    """
+    info("Generating failed logon attempts → Event ID 4625")
+
+    LOGON32_LOGON_NETWORK   = 3
+    LOGON32_PROVIDER_DEFAULT = 0
+    LogonUser = ctypes.windll.advapi32.LogonUserW
+
+    succeeded = 0
+    for i in range(count):
+        token = ctypes.c_void_p()
+        # Deliberately wrong password — will always fail and log 4625
+        LogonUser(
+            f"attacker_probe_{i:02d}",   # username  (non-existent)
+            ".",                          # domain    (local machine)
+            f"WrongP@ss#{i}!xZ",         # password  (wrong)
+            LOGON32_LOGON_NETWORK,
+            LOGON32_PROVIDER_DEFAULT,
+            ctypes.byref(token),
+        )
+        succeeded += 1
+        time.sleep(0.2)
+
+    ok(f"Generated {succeeded} failed logon events (Event ID 4625 × {succeeded})")
+    info("The IDS should flag this as: BRUTE_FORCE / HIGH or CRITICAL")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# SCENARIO 2 — Privilege Escalation
+# Events: 4720 (user created), 4732 (added to Admins),
+#         4733 (removed from Admins), 4726 (user deleted)
+# ══════════════════════════════════════════════════════════════════════════
+
+def sim_privilege_escalation():
+    """
+    Create a test local user, elevate it to Administrator, then clean up.
+    Generates the full privilege escalation event chain.
+    """
+    USERNAME = "SentinelProbe99"
+    PASSWORD = "TmpT3st@2025!"
+
+    info(f"Creating test user '{USERNAME}' → Event ID 4720")
+    if not _run(["net", "user", USERNAME, PASSWORD, "/add"]):
+        warn("Could not create user — may need Administrator rights")
+        return
+
+    time.sleep(0.5)
+    info("Adding to Administrators group → Event ID 4732")
+    _run(["net", "localgroup", "Administrators", USERNAME, "/add"])
+
+    time.sleep(0.5)
+    info("Removing from Administrators group → Event ID 4733")
+    _run(["net", "localgroup", "Administrators", USERNAME, "/delete"])
+
+    time.sleep(0.3)
+    info("Deleting test user → Event ID 4726")
+    _run(["net", "user", USERNAME, "/delete"])
+
+    ok("Privilege escalation chain complete (4720 → 4732 → 4733 → 4726)")
+    info("The IDS should flag this as: PRIVILEGE_ESC / HIGH")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# SCENARIO 3 — Malicious Scheduled Task
+# Events: 4698 (task created), 4699 (task deleted)
+# ══════════════════════════════════════════════════════════════════════════
+
+def sim_scheduled_task():
+    """
+    Register a scheduled task with a suspicious PowerShell payload,
+    then delete it. Mimics a common persistence technique.
+    """
+    TASK = "\\SentinelMalwareTest"
+    # Encoded payload: harmless "ipconfig" but looks like malware
+    payload = base64.b64encode("ipconfig /all".encode("utf-16-le")).decode()
+    cmd = f"powershell -WindowStyle Hidden -NoProfile -EncodedCommand {payload}"
+
+    info(f"Creating suspicious scheduled task → Event ID 4698")
+    created = _run([
+        "schtasks", "/create",
+        "/tn", TASK,
+        "/tr", cmd,
+        "/sc", "once", "/st", "23:59",
+        "/f", "/rl", "HIGHEST",
+    ])
+    if not created:
+        warn("schtasks create failed — needs Administrator rights")
+
+    time.sleep(1)
+    info("Deleting scheduled task → Event ID 4699")
+    _run(["schtasks", "/delete", "/tn", TASK, "/f"])
+
+    ok("Malicious scheduled task simulation complete (4698 → 4699)")
+    info("The IDS should flag this as: PERSISTENCE / HIGH")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# SCENARIO 4 — Suspicious PowerShell Execution
+# Mimics living-off-the-land / fileless malware techniques
+# ══════════════════════════════════════════════════════════════════════════
+
+def sim_suspicious_process():
+    """
+    Run PowerShell with flags commonly used by malware:
+    -ExecutionPolicy Bypass, -WindowStyle Hidden, -EncodedCommand
+    The actual command is harmless but the pattern is highly suspicious.
+    """
+    info("Running PowerShell with suspicious malware-style flags")
+
+    commands = [
+        # Encoded command (common evasion technique)
+        ("Encoded command execution",
+         ["powershell", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden",
+          "-EncodedCommand",
+          base64.b64encode("Get-Process | Measure-Object".encode("utf-16-le")).decode()]),
+
+        # Download cradle pattern (points to nothing harmful)
+        ("Download cradle simulation",
+         ["powershell", "-ExecutionPolicy", "Bypass", "-NoProfile", "-NonInteractive",
+          "-Command", "(New-Object Net.WebClient).DownloadString | Out-Null"]),
+
+        # AMSI bypass pattern
+        ("AMSI bypass pattern",
+         ["powershell", "-Command",
+          "[Ref].Assembly.GetType('System.Management.Automation.AmsiUtils') | Out-Null"]),
+    ]
+
+    for label, cmd in commands:
+        info(f"  {label}")
+        subprocess.run(cmd, capture_output=True, timeout=10)
+        time.sleep(0.5)
+
+    ok("Suspicious PowerShell patterns executed")
+    info("The IDS should flag this as: SUSPICIOUS_PROCESS / MEDIUM-HIGH")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# SCENARIO 5 — Network Reconnaissance
+# Mimics an attacker mapping the local network and system
+# ══════════════════════════════════════════════════════════════════════════
+
+def sim_network_recon():
+    """
+    Run a series of system/network enumeration commands in rapid succession —
+    the same pattern an attacker uses immediately after gaining access.
+    """
+    info("Running network and system enumeration commands")
+
+    commands = [
+        (["netstat",  "-ano"],                          "Active connections (netstat -ano)"),
+        (["arp",      "-a"],                             "ARP table (arp -a)"),
+        (["net",      "user"],                           "Local user enumeration (net user)"),
+        (["net",      "localgroup", "administrators"],   "Admin group members"),
+        (["net",      "share"],                          "Network shares (net share)"),
+        (["ipconfig", "/all"],                           "Full network config"),
+        (["whoami",   "/all"],                           "Current user privileges"),
+        (["tasklist", "/v"],                             "Running processes"),
+        (["reg",      "query",
+          r"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion"],
+                                                        "OS registry query"),
+        (["reg",      "query",
+          r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run"],
+                                                        "Startup registry query"),
+    ]
+
+    for cmd, label in commands:
+        info(f"  {label}")
+        subprocess.run(cmd, capture_output=True, timeout=10)
+        time.sleep(0.15)
+
+    ok("Network reconnaissance simulation complete")
+    info("The IDS should flag this as: RECON / MEDIUM")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# SCENARIO 6 — Log Tampering
+# Event ID 104 (System log): Application log cleared
+# ══════════════════════════════════════════════════════════════════════════
+
+def sim_log_tamper():
+    """
+    Clear the Application event log — the same first step
+    an attacker takes to hide their tracks.
+    Generates Event ID 104 in the System log.
+    """
+    info("Clearing Application event log → Event ID 104 in System log")
+
+    cleared = _run(["wevtutil", "cl", "Application"])
+    if cleared:
+        ok("Application log cleared (Event ID 104)")
+        info("The IDS should flag this as: LOG_TAMPER / HIGH")
+    else:
+        warn("Log clear failed — needs Administrator rights")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# SCENARIO REGISTRY
+# ══════════════════════════════════════════════════════════════════════════
 
 SCENARIOS = {
-    "brute_force": {
-        "template_id": "EVT_brute",
-        "priority_threat": "brute_force",
-        "messages": lambda: [
-            f"[Application] EventID=4625 Authentication failure for user admin from {_ip()}",
-            f"[Application] EventID=4625 Failed login attempt invalid credentials for user root from {_ip()}",
-            f"[Application] EventID=4625 Login failed wrong password for user administrator [{_rid()}]",
-            f"[Application] EventID=4625 Authentication failure bad credentials for user admin from {_ip()}",
-            f"[Application] EventID=4625 Failed login attempt for user guest from {_ip()}",
-            f"[Application] EventID=4625 Invalid user login authentication failure detected [{_rid()}]",
-            f"[Application] EventID=4625 Login failed invalid password attempt {_rid()} from {_ip()}",
-            f"[Application] EventID=4625 Bad credentials authentication failure user admin [{_rid()}]",
-        ],
-    },
-    "privilege_esc": {
-        "template_id": "EVT_priv",
-        "priority_threat": "privilege_esc",
-        "messages": lambda: [
-            f"[Security] EventID=4720 Privilege escalation attempt detected for process cmd.exe [{_rid()}]",
-            f"[Security] EventID=4728 Unauthorized access elevated privilege requested from {_ip()}",
-            f"[Security] EventID=4732 Admin rights escalation attempt permission denied [{_rid()}]",
-            f"[Security] EventID=4720 Privilege escalation sudo equivalent command executed [{_rid()}]",
-            f"[Security] EventID=4728 Unauthorized admin access attempt from {_ip()}",
-            f"[Security] EventID=4732 Root access attempt permission denied for user [{_rid()}]",
-            f"[Security] EventID=4720 Elevated privilege request unauthorized from {_ip()}",
-        ],
-    },
-    "network": {
-        "template_id": "EVT_net",
-        "priority_threat": "",
-        "messages": lambda: [
-            f"[Application] EventID=5152 Port scan detected from remote host {_ip()} on port {_port()}",
-            f"[Application] EventID=5152 Firewall rule triggered intrusion attempt blocked from {_ip()}",
-            f"[Application] EventID=5152 SSH connection attempt from unknown host {_ip()}",
-            f"[Application] EventID=5152 Network intrusion detected connection attempt on port {_port()}",
-            f"[Application] EventID=5152 Remote access attempt blocked by firewall from {_ip()}",
-            f"[Application] EventID=5152 Port scan sweep detected from {_ip()} targeting port {_port()}",
-            f"[Application] EventID=5152 Firewall blocked intrusion from remote host {_ip()}",
-        ],
-    },
-    "dos": {
-        "template_id": "EVT_dos",
-        "priority_threat": "",
-        "messages": lambda: [
-            f"[Application] EventID=7031 Flood attack detected too many requests from {_ip()}",
-            f"[Application] EventID=7031 Rate limit exceeded connection refused [{_rid()}]",
-            f"[Application] EventID=7031 DoS detected system overload from {_ip()}",
-            f"[Application] EventID=7031 Too many requests rate limit triggered [{_rid()}]",
-            f"[Application] EventID=7031 Connection flood detected from {_ip()} on port {_port()}",
-            f"[Application] EventID=7031 Service overload timeout from {_ip()} [{_rid()}]",
-        ],
-    },
-    "log_tamper": {
-        "template_id": "EVT_tamper",
-        "priority_threat": "log_tamper",
-        "messages": lambda: [
-            f"[Security] EventID=1102 Security log cleared by unknown process [{_rid()}]",
-            f"[Security] EventID=4719 Log file modified possible tamper detected [{_rid()}]",
-            f"[Security] EventID=1102 Audit log truncated unexpectedly [{_rid()}]",
-            f"[Security] EventID=4719 Log rotation triggered outside scheduled window [{_rid()}]",
-            f"[Security] EventID=1102 Event log deleted forensic evidence may be lost [{_rid()}]",
-            f"[Security] EventID=4719 Log file cleared by process at {_ip()} [{_rid()}]",
-        ],
-    },
+    "brute_force"     : (sim_brute_force,          "Multiple failed logons    → Event 4625 × 6"),
+    "privilege_esc"   : (sim_privilege_escalation,  "Create/escalate user      → Events 4720, 4732, 4733, 4726"),
+    "scheduled_task"  : (sim_scheduled_task,         "Malicious scheduled task  → Events 4698, 4699"),
+    "suspicious_proc" : (sim_suspicious_process,     "Malware-style PowerShell  → Suspicious process pattern"),
+    "network_recon"   : (sim_network_recon,          "Network enumeration       → Recon pattern"),
+    "log_tamper"      : (sim_log_tamper,             "Clear event log           → Event 104"),
 }
 
 
-def run_scenario(name: str):
-    from ingest.log_collector import (
-        extract_realtime_features, score_events,
-        load_model_and_meta, emit_alert,
-        ANOMALY_SCORE_THRESHOLD,
-    )
-
-    scenario = SCENARIOS[name]
-    messages = scenario["messages"]()
-    now      = datetime.now()
-    minute   = now.strftime("%Y%m%d_%H%M")
-    block_id = f"test_{name}_{minute}_{_rid()}"
-
-    # Build fake events in the same format the collector produces
-    events = [
-        {
-            "raw"           : msg,
-            "block_id"      : block_id,
-            "template_id"   : scenario["template_id"],
-            "source"        : "TestSimulation",
-            "os"            : "windows",
-            "collected_at"  : now.isoformat(timespec="seconds"),
-            "event_id"      : 9999,
-            "priority_threat": scenario["priority_threat"],
-        }
-        for msg in messages
-    ]
-
-    print(f"\n[{name.upper()}] Injecting {len(events)} fake events -> block: {block_id}")
-
-    # Save to events.jsonl so the dashboard Raw Events tab shows them
-    EVENTS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(EVENTS_FILE, "a") as f:
-        for e in events:
-            f.write(json.dumps(e) + "\n")
-
-    # Run through the real scoring pipeline
-    model, feature_cols = load_model_and_meta(MODEL_FILE, META_FILE)
-    df = extract_realtime_features(events, min_events_per_block=1)
-
-    if df.empty:
-        print("  No features extracted — skipped.")
-        return
-
-    df = score_events(df, model, feature_cols, threshold=ANOMALY_SCORE_THRESHOLD)
-    anomalies = df[df["is_anomaly"] == True]
-
-    print(f"  Scored {len(df)} block(s). Anomalies found: {len(anomalies)}")
-
-    for _, row in df.iterrows():
-        score = round(float(row["anomaly_score"]), 4)
-        is_anom = row["is_anomaly"]
-        print(f"  Score: {score}  Threshold: {ANOMALY_SCORE_THRESHOLD}  Alert: {'YES ✓' if is_anom else 'NO (below threshold)'}")
-
-        if is_anom:
-            emit_alert(row, EVENTS_FILE, ALERTS_FILE)
-            print(f"  Alert written to alerts.jsonl")
-        else:
-            # Force-write alert for testing even if above threshold
-            print(f"  Score {score} is above threshold {ANOMALY_SCORE_THRESHOLD} — forcing alert for test...")
-            row_copy = row.copy()
-            row_copy["anomaly_score"] = ANOMALY_SCORE_THRESHOLD - 0.01
-            row_copy["is_anomaly"]    = True
-            emit_alert(row_copy, EVENTS_FILE, ALERTS_FILE)
-            print(f"  Forced alert written.")
-
+# ══════════════════════════════════════════════════════════════════════════
+# MAIN
+# ══════════════════════════════════════════════════════════════════════════
 
 def main():
-    parser = argparse.ArgumentParser(description="Inject fake threat events for testing")
+    parser = argparse.ArgumentParser(
+        description="Log Sentinel AI — Real Threat Simulation",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument(
-        "--scenario",
-        default="brute_force",
+        "--scenario", "-s",
+        default="all",
         choices=list(SCENARIOS.keys()) + ["all"],
-        help="Threat scenario to simulate (default: brute_force)"
+        help="Scenario to run (default: all)",
+    )
+    parser.add_argument(
+        "--delay", "-d",
+        type=int, default=5,
+        help="Seconds to wait between scenarios (default: 5)",
+    )
+    parser.add_argument(
+        "--list", "-l",
+        action="store_true",
+        help="List available scenarios and exit",
     )
     args = parser.parse_args()
 
-    print("=" * 60)
-    print("  Log Sentinel AI — Threat Simulation")
-    print("  Injecting directly into scoring pipeline")
-    print("=" * 60)
+    if args.list:
+        print(f"\n{CYN}Available scenarios:{RST}\n")
+        for name, (_, desc) in SCENARIOS.items():
+            print(f"  {GRN}{name:<20}{RST} {desc}")
+        print()
+        return
 
-    if args.scenario == "all":
-        for name in SCENARIOS:
-            run_scenario(name)
+    # ── Banner ─────────────────────────────────────────────────────────────
+    print(f"""
+{CYN}  +--------------------------------------------------+
+  |   LOG  SENTINEL  AI  —  Threat Simulation       |
+  +--------------------------------------------------+{RST}
+""")
+
+    # ── Admin check ────────────────────────────────────────────────────────
+    if not is_admin():
+        print(f"  {YEL}⚠  Not running as Administrator.{RST}")
+        print(f"     Some scenarios need admin rights (privilege_esc, log_tamper).")
+        print(f"     Right-click test_threat.py → Run as administrator for full results.\n")
     else:
-        run_scenario(args.scenario)
+        print(f"  {GRN}✓  Running as Administrator.{RST}\n")
 
-    print("\nDone! Refresh the dashboard to see new alerts.")
+    # ── Agent reminder ─────────────────────────────────────────────────────
+    print(f"  {YEL}Make sure the agent (launcher.py / START.bat) is running!{RST}")
+    print(f"  Events are written to Windows Event Log — the agent picks them up.")
+    print(f"  Check the dashboard after each scenario.\n")
+    print("  " + "─" * 50)
+
+    # ── Run ────────────────────────────────────────────────────────────────
+    to_run = list(SCENARIOS.items()) if args.scenario == "all" else [(args.scenario, SCENARIOS[args.scenario])]
+
+    for i, (name, (fn, desc)) in enumerate(to_run):
+        print(f"\n  {CYN}[{i+1}/{len(to_run)}] {name.upper()}{RST}")
+        print(f"  {DIM}{desc}{RST}\n")
+        try:
+            fn()
+        except KeyboardInterrupt:
+            print(f"\n  {YEL}Skipped.{RST}")
+        except Exception as e:
+            err(f"Scenario failed: {e}")
+
+        if i < len(to_run) - 1:
+            print(f"\n  {DIM}Waiting {args.delay}s before next scenario...{RST}")
+            try:
+                time.sleep(args.delay)
+            except KeyboardInterrupt:
+                pass
+
+    # ── Summary ────────────────────────────────────────────────────────────
+    print(f"\n  {'─' * 50}")
+    print(f"\n  {GRN}All simulations complete.{RST}")
+    print(f"  → Open the dashboard and check for new alerts.")
+    print(f"  → The agent sends logs every few seconds.")
+    print(f"  → Allow 15–30 seconds for alerts to appear.\n")
 
 
 if __name__ == "__main__":

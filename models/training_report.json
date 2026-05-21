@@ -1,5 +1,5 @@
 {
-  "trained_at": "2026-04-07T11:08:38",
+  "trained_at": "2026-04-13T22:47:03",
   "config": {
     "features_file": "C:\\Users\\immon\\Desktop\\Log-Sentinel-Ai\\data\\features\\windows_block_features.parquet",
     "model_file": "C:\\Users\\immon\\Desktop\\Log-Sentinel-Ai\\models\\isoforest.pkl",
@@ -9,17 +9,17 @@
     "test_size": 0.2,
     "random_state": 42,
     "n_features": 22,
-    "train_blocks": 294
+    "train_blocks": 438
   },
   "evaluation": {
-    "test_blocks": 74,
+    "test_blocks": 110,
     "flagged_anomalies": 0,
     "anomaly_rate_pct": 0.0,
-    "score_mean": 0.244187,
-    "score_std": 0.072057,
-    "score_min": 0.067997,
-    "score_max": 0.308899,
-    "score_p5": 0.081474,
-    "score_p95": 0.308899
+    "score_mean": 0.225195,
+    "score_std": 0.070898,
+    "score_min": 0.010932,
+    "score_max": 0.294431,
+    "score_p5": 0.098479,
+    "score_p95": 0.294431
   }
 }

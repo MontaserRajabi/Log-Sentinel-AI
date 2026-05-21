@@ -3,214 +3,260 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Log Sentinel AI — Profile</title>
-<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet"/>
+<title>LogSentinelAI — Profile</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
 <style>
-  :root {
-    --bg:      #0a0e17;
-    --panel:   #0f1623;
-    --border:  #1a2540;
-    --accent:  #00d4ff;
-    --accent2: #0066ff;
-    --danger:  #ff3b5c;
-    --ok:      #00e676;
-    --text:    #c8d8f0;
-    --sub:     #4a6080;
-    --mono:    'Share Tech Mono', monospace;
-    --sans:    'Rajdhani', sans-serif;
-  }
-  * { margin:0; padding:0; box-sizing:border-box; }
-  body {
-    background:var(--bg); min-height:100vh;
-    display:flex; align-items:center; justify-content:center;
-    font-family:var(--sans);
-  }
-  body::before {
-    content:''; position:fixed; inset:0;
-    background-image:
-      linear-gradient(rgba(0,212,255,.03) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(0,212,255,.03) 1px, transparent 1px);
-    background-size:40px 40px;
-    animation:gridMove 20s linear infinite; pointer-events:none;
-  }
-  @keyframes gridMove { to { background-position:40px 40px; } }
+:root {
+  --bg:      #0d1117;
+  --surface: #161b22;
+  --surface2:#1c2230;
+  --border:  #30363d;
+  --accent:  #17c3d8;
+  --danger:  #f85149;
+  --success: #3fb950;
+  --text:    #e6edf3;
+  --muted:   #8b949e;
+  --font:    'Inter', -apple-system, sans-serif;
+  --mono:    'JetBrains Mono', monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{
+  background:var(--bg);min-height:100vh;
+  display:flex;align-items:center;justify-content:center;
+  font-family:var(--font);padding:24px 0;
+  position:relative;overflow:hidden;
+}
+body::before{
+  content:'';position:fixed;inset:0;
+  background-image:radial-gradient(circle,rgba(23,195,216,0.05) 1px,transparent 1px);
+  background-size:28px 28px;pointer-events:none;
+}
+.card{
+  position:relative;width:480px;
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:12px;padding:40px 36px 36px;
+  box-shadow:0 0 0 1px rgba(23,195,216,0.04),0 24px 64px rgba(0,0,0,0.4);
+  z-index:1;animation:fadeUp .4s ease both;
+}
+@keyframes fadeUp{from{opacity:0;transform:translateY(16px);}}
+.card::before{
+  content:'';position:absolute;
+  top:0;left:20px;right:20px;height:2px;
+  background:linear-gradient(90deg,transparent,var(--accent),transparent);
+  border-radius:0 0 2px 2px;opacity:0.6;
+}
 
-  .card {
-    position:relative; width:460px;
-    background:var(--panel); border:1px solid var(--border);
-    border-radius:4px; padding:48px 40px;
-    box-shadow:0 0 60px rgba(0,102,255,.1),0 0 0 1px rgba(0,212,255,.05);
-    animation:fadeUp .5s ease both;
-  }
-  @keyframes fadeUp { from { opacity:0; transform:translateY(20px); } }
-  .card::before,.card::after {
-    content:''; position:absolute; width:16px; height:16px;
-    border-color:var(--accent); border-style:solid;
-  }
-  .card::before { top:-1px; left:-1px; border-width:2px 0 0 2px; }
-  .card::after  { bottom:-1px; right:-1px; border-width:0 2px 2px 0; }
+/* Header */
+.card-header{
+  display:flex;align-items:center;justify-content:space-between;
+  margin-bottom:28px;padding-bottom:20px;border-bottom:1px solid var(--border);
+}
+.header-brand{display:flex;align-items:center;gap:10px;}
+.header-brand svg{width:28px;height:28px;}
+.brand-name{font-size:0.95rem;font-weight:700;color:var(--text);letter-spacing:-0.2px;}
+.brand-name em{color:var(--accent);font-style:normal;}
+.page-label{font-size:0.72rem;font-weight:600;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase;font-family:var(--mono);}
 
-  .scan-line {
-    position:absolute; left:0; right:0; height:2px;
-    background:linear-gradient(90deg,transparent,var(--accent),transparent);
-    animation:scan 3s ease-in-out infinite; opacity:.4;
-  }
-  @keyframes scan { 0%{top:0;opacity:0} 10%{opacity:.4} 90%{opacity:.4} 100%{top:100%;opacity:0} }
+/* Alerts */
+.alert-box{border-radius:8px;padding:11px 14px;font-size:0.82rem;margin-bottom:20px;display:flex;align-items:center;gap:8px;}
+.alert-box.ok{background:rgba(63,185,80,0.08);border:1px solid rgba(63,185,80,0.28);color:var(--success);}
+.alert-box.err{background:rgba(248,81,73,0.08);border:1px solid rgba(248,81,73,0.28);color:var(--danger);}
 
-  .logo { text-align:center; margin-bottom:32px; }
-  .logo h1 { font-size:1.4rem; font-weight:700; color:var(--text); letter-spacing:2px; text-transform:uppercase; }
-  .logo p  { font-family:var(--mono); font-size:.7rem; color:var(--sub); letter-spacing:3px; margin-top:4px; }
+/* Username badge */
+.user-card{
+  background:rgba(23,195,216,0.05);
+  border:1px solid rgba(23,195,216,0.15);
+  border-radius:8px;padding:14px 16px;
+  display:flex;align-items:center;gap:12px;
+  margin-bottom:28px;
+}
+.user-avatar{
+  width:38px;height:38px;border-radius:50%;
+  background:linear-gradient(135deg,var(--accent),#0e8a9c);
+  display:flex;align-items:center;justify-content:center;
+  font-size:1rem;font-weight:700;color:#0d1117;
+  flex-shrink:0;
+}
+.user-label{font-size:0.65rem;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase;font-family:var(--mono);}
+.user-value{font-size:1rem;font-weight:600;color:var(--accent);letter-spacing:-0.2px;margin-top:1px;}
 
-  .username-badge {
-    background:rgba(0,212,255,.06); border:1px solid rgba(0,212,255,.15);
-    border-radius:3px; padding:14px 16px; margin-bottom:28px;
-    display:flex; align-items:center; gap:12px;
-  }
-  .username-badge .icon { font-size:1.5rem; }
-  .username-badge .info { flex:1; }
-  .username-badge .label { font-family:var(--mono); font-size:.65rem; color:var(--sub); letter-spacing:2px; }
-  .username-badge .value { font-size:1.1rem; font-weight:700; color:var(--accent); letter-spacing:1px; }
+/* Sections */
+.section{margin-bottom:28px;}
+.section-title{
+  font-size:0.72rem;font-weight:600;color:var(--muted);
+  letter-spacing:1.2px;text-transform:uppercase;
+  margin-bottom:14px;padding-bottom:8px;
+  border-bottom:1px solid var(--border);
+}
+.field{margin-bottom:14px;}
+.field label{
+  display:block;font-size:0.74rem;font-weight:600;
+  color:var(--muted);letter-spacing:0.3px;
+  text-transform:uppercase;margin-bottom:6px;
+}
+.field input{
+  width:100%;background:var(--surface2);border:1px solid var(--border);
+  border-radius:8px;padding:10px 12px;color:var(--text);
+  font-family:var(--font);font-size:0.88rem;outline:none;
+  transition:border-color .15s,box-shadow .15s;
+}
+.field input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(23,195,216,0.1);}
 
-  .section-title {
-    font-family:var(--mono); font-size:.68rem; color:var(--accent);
-    letter-spacing:2px; margin-bottom:14px; padding-bottom:6px;
-    border-bottom:1px solid var(--border);
-  }
-  .section { margin-bottom:28px; }
+.btn{
+  width:100%;padding:10px;
+  background:var(--accent);border:none;border-radius:8px;
+  color:#0d1117;font-family:var(--font);font-size:0.88rem;
+  font-weight:700;cursor:pointer;transition:filter .15s,transform .1s;margin-top:2px;
+}
+.btn:hover{filter:brightness(1.1);}
+.btn:active{transform:scale(.99);}
 
-  .field { margin-bottom:14px; }
-  .field label { display:block; font-family:var(--mono); font-size:.68rem; color:var(--sub); letter-spacing:2px; margin-bottom:6px; }
-  .field input {
-    width:100%; background:rgba(0,212,255,.03); border:1px solid var(--border);
-    border-radius:2px; padding:10px 12px; color:var(--text);
-    font-family:var(--mono); font-size:.9rem; outline:none;
-    transition:border-color .2s,box-shadow .2s;
-  }
-  .field input:focus { border-color:var(--accent); box-shadow:0 0 0 3px rgba(0,212,255,.08); }
+/* Machine info */
+.machine-box{
+  background:rgba(63,185,80,0.06);
+  border:1px solid rgba(63,185,80,0.2);
+  border-radius:8px;padding:12px 14px;
+  display:flex;align-items:center;gap:10px;
+}
+.machine-box .dot{width:8px;height:8px;border-radius:50%;background:var(--success);flex-shrink:0;animation:pulse 2s infinite;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:.4;}}
+.machine-label{font-size:0.65rem;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase;font-family:var(--mono);}
+.machine-value{font-size:0.9rem;color:var(--success);font-family:var(--mono);margin-top:1px;}
+.machine-note{font-size:0.74rem;color:var(--muted);margin-top:8px;line-height:1.7;}
 
-  .btn {
-    width:100%; padding:11px; background:linear-gradient(135deg,var(--accent2),var(--accent));
-    border:none; border-radius:2px; color:#fff; font-family:var(--sans);
-    font-size:.95rem; font-weight:700; letter-spacing:2px; text-transform:uppercase;
-    cursor:pointer; transition:opacity .2s,transform .1s; margin-top:4px;
-  }
-  .btn:hover { opacity:.9; } .btn:active { transform:scale(.99); }
+.no-machine{font-size:0.8rem;color:var(--muted);line-height:1.8;padding:4px 0;}
+.no-machine strong{color:var(--success);}
 
-  .alert {
-    border-radius:2px; padding:10px 14px; font-family:var(--mono);
-    font-size:.78rem; margin-bottom:18px;
-  }
-  .alert.ok  { background:rgba(0,230,118,.08); border:1px solid rgba(0,230,118,.3); color:var(--ok); }
-  .alert.err { background:rgba(255,59,92,.08);  border:1px solid rgba(255,59,92,.3);  color:var(--danger); }
+/* PW hints */
+.pw-hints{
+  margin-top:6px;font-size:0.72rem;line-height:2;
+  font-family:var(--mono);
+}
+.ph{color:var(--danger);transition:color .15s;}
+.ph.ok{color:var(--success);}
 
-  .back-link {
-    display:block; text-align:center; margin-top:20px;
-    font-family:var(--mono); font-size:.72rem; color:var(--sub);
-    text-decoration:none; letter-spacing:1px;
-    transition:color .2s;
-  }
-  .back-link:hover { color:var(--accent); }
+/* Back link */
+.back-link{
+  display:block;text-align:center;margin-top:20px;
+  font-size:0.8rem;color:var(--muted);text-decoration:none;
+  transition:color .15s;
+}
+.back-link:hover{color:var(--accent);}
 </style>
 </head>
 <body>
 <div class="card">
-  <div class="scan-line"></div>
-
-  <div class="logo">
-    <h1>Log Sentinel AI</h1>
-    <p>// ACCOUNT SETTINGS</p>
+  <div class="card-header">
+    <div class="header-brand">
+      <svg viewBox="0 0 28 28" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="5"  cy="9"  r="2"   fill="#17c3d8" opacity=".85"/>
+        <circle cx="5"  cy="19" r="2"   fill="#17c3d8" opacity=".6"/>
+        <circle cx="14" cy="4"  r="2"   fill="#17c3d8" opacity=".8"/>
+        <circle cx="14" cy="14" r="2.8" fill="#17c3d8"/>
+        <circle cx="14" cy="24" r="2"   fill="#17c3d8" opacity=".6"/>
+        <circle cx="23" cy="9"  r="2"   fill="#17c3d8" opacity=".85"/>
+        <circle cx="23" cy="19" r="2"   fill="#17c3d8" opacity=".6"/>
+        <line x1="5"  y1="9"  x2="14" y2="9"  stroke="#17c3d8" stroke-width="1.4" opacity=".5"/>
+        <line x1="5"  y1="19" x2="14" y2="19" stroke="#17c3d8" stroke-width="1.4" opacity=".4"/>
+        <line x1="14" y1="4"  x2="14" y2="24" stroke="#17c3d8" stroke-width="1.4" opacity=".4"/>
+        <line x1="14" y1="9"  x2="23" y2="9"  stroke="#17c3d8" stroke-width="1.4" opacity=".5"/>
+        <line x1="14" y1="19" x2="23" y2="19" stroke="#17c3d8" stroke-width="1.4" opacity=".4"/>
+      </svg>
+      <div>
+        <div class="brand-name">Log<em>Sentinel</em>AI</div>
+      </div>
+    </div>
+    <span class="page-label">Account Settings</span>
   </div>
 
   {% if success %}
-  <div class="alert ok">&#10003; &nbsp;{{ success }}</div>
+  <div class="alert-box ok">&#10003; &nbsp;{{ success }}</div>
   {% endif %}
   {% if error %}
-  <div class="alert err">&#9888; &nbsp;{{ error }}</div>
+  <div class="alert-box err">&#9888; &nbsp;{{ error }}</div>
   {% endif %}
 
-  <!-- Username display -->
-  <div class="username-badge">
-    <span class="icon">&#128100;</span>
-    <div class="info">
-      <div class="label">// LOGGED IN AS</div>
-      <div class="value">{{ username }}</div>
+  <div class="user-card">
+    <div class="user-avatar">{{ username[0].upper() if username else 'U' }}</div>
+    <div>
+      <div class="user-label">Logged in as</div>
+      <div class="user-value">{{ username }}</div>
     </div>
   </div>
 
-  <!-- Update email -->
+  <!-- Recovery Email -->
   <div class="section">
-    <div class="section-title">// RECOVERY EMAIL</div>
+    <div class="section-title">Recovery Email</div>
     <form method="POST">
       <input type="hidden" name="action" value="update_email"/>
       <div class="field">
-        <label>EMAIL ADDRESS</label>
+        <label>Email Address</label>
         <input type="email" name="email" value="{{ email }}" placeholder="your@email.com"/>
       </div>
       <button class="btn" type="submit">Save Email</button>
     </form>
   </div>
 
-  <!-- Connected machine (read-only — paired via agent code) -->
+  <!-- Connected Machine -->
   <div class="section">
-    <div class="section-title">// CONNECTED MACHINE</div>
+    <div class="section-title">Connected Machine</div>
     {% if source_machine %}
-    <div style="background:rgba(0,230,118,.06);border:1px solid rgba(0,230,118,.2);border-radius:3px;padding:12px 14px;display:flex;align-items:center;gap:10px;">
-      <span style="font-size:1.2rem;">🖥</span>
+    <div class="machine-box">
+      <span class="dot"></span>
       <div>
-        <div style="font-family:var(--mono);font-size:.65rem;color:var(--sub);letter-spacing:2px;">MACHINE</div>
-        <div style="font-family:var(--mono);font-size:.95rem;color:var(--ok);">{{ source_machine }}</div>
+        <div class="machine-label">Machine</div>
+        <div class="machine-value">{{ source_machine }}</div>
       </div>
     </div>
-    <p style="font-family:var(--mono);font-size:.65rem;color:var(--sub);margin-top:8px;">
+    <p class="machine-note">
       To change your machine, run the agent on the new machine and enter the pairing code on the dashboard.
     </p>
     {% else %}
-    <div style="font-family:var(--mono);font-size:.72rem;color:var(--sub);line-height:1.8;padding:10px 0;">
+    <div class="no-machine">
       No machine connected yet.<br>
       Run the agent on your machine — it will display a 6-character code.<br>
-      Enter that code on your dashboard using the <strong style="color:var(--ok);">Connect Machine</strong> button.
+      Enter that code on your dashboard using the <strong>Connect Machine</strong> button.
     </div>
     {% endif %}
   </div>
 
-  <!-- Change password -->
+  <!-- Change Password -->
   <div class="section">
-    <div class="section-title">// CHANGE PASSWORD</div>
+    <div class="section-title">Change Password</div>
     <form method="POST" onsubmit="return validateProfilePw()">
       <input type="hidden" name="action" value="change_password"/>
       <div class="field">
-        <label>CURRENT PASSWORD</label>
+        <label>Current Password</label>
         <input type="password" name="current_password" required/>
       </div>
       <div class="field">
-        <label>NEW PASSWORD</label>
+        <label>New Password</label>
         <input type="password" name="new_password" id="npw" minlength="8" required oninput="checkProfilePw()"/>
-        <div style="margin-top:6px;font-family:var(--mono);font-size:.65rem;color:var(--sub);line-height:1.9;" id="pw-hints">
-          <span id="ph-len"  style="color:var(--danger)">✗ 8+ characters &nbsp;</span>
-          <span id="ph-num"  style="color:var(--danger)">✗ one number &nbsp;</span>
-          <span id="ph-sym"  style="color:var(--danger)">✗ one symbol</span>
+        <div class="pw-hints" id="pw-hints">
+          <span class="ph" id="ph-len">✗ 8+ characters &nbsp;</span>
+          <span class="ph" id="ph-num">✗ one number &nbsp;</span>
+          <span class="ph" id="ph-sym">✗ one symbol</span>
         </div>
       </div>
       <div class="field">
-        <label>CONFIRM NEW PASSWORD</label>
+        <label>Confirm New Password</label>
         <input type="password" name="confirm_password" id="npw2" minlength="8" required oninput="checkProfilePw()"/>
       </div>
       <button class="btn" type="submit">Update Password</button>
     </form>
   </div>
 
-  <a class="back-link" href="/">&#8592; Back to Dashboard</a>
+  <a class="back-link" href="/">&larr; Back to Dashboard</a>
 </div>
 <script>
 function _ok(id, pass) {
   const el = document.getElementById(id);
   if (!el) return;
-  el.style.color = pass ? 'var(--ok)' : 'var(--danger)';
+  el.classList.toggle('ok', pass);
   el.textContent = (pass ? '✓' : '✗') + el.textContent.slice(1);
 }
 function checkProfilePw() {
   const pw = (document.getElementById('npw')  || {}).value || '';
-  const p2 = (document.getElementById('npw2') || {}).value || '';
   _ok('ph-len', pw.length >= 8);
   _ok('ph-num', /\d/.test(pw));
   _ok('ph-sym', /[!@#$%^&*()\-_=+\[\]{};:'",.<>/?\\|`~]/.test(pw));
@@ -218,7 +264,7 @@ function checkProfilePw() {
 function validateProfilePw() {
   const pw = (document.getElementById('npw')  || {}).value || '';
   const p2 = (document.getElementById('npw2') || {}).value || '';
-  if (pw.length < 8)                                          { alert('Password must be at least 8 characters.'); return false; }
+  if (pw.length < 8)                                         { alert('Password must be at least 8 characters.'); return false; }
   if (!/\d/.test(pw))                                        { alert('Password must contain at least one number.'); return false; }
   if (!/[!@#$%^&*()\-_=+\[\]{};:'",.<>/?\\|`~]/.test(pw))  { alert('Password must contain at least one symbol.'); return false; }
   if (pw !== p2)                                             { alert('Passwords do not match.'); return false; }
