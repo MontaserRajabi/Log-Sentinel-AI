@@ -270,6 +270,7 @@ def _health_loop(server: str, source: str, api_key: str) -> None:
             payload = {
                 "machine"   : source,
                 "ip"        : machine_ip,
+                "os"        : detect_os(),
                 "cpu"       : round(cpu, 1),
                 "ram"       : round(mem.percent, 1),
                 "ram_used"  : round(mem.used   / (1024 ** 3), 2),
