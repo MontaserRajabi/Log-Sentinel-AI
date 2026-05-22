@@ -295,11 +295,17 @@ def get_admin_email(username: str) -> str:
     return rec.get("email", "")
 
 
-def update_admin_email(username: str, email: str) -> bool:
+def update_admin_email(username: str, email: str) -> bool | str:
+    """Update email. Returns True on success, or an error string if the email is already in use."""
     rec = _read_user(username)
     if rec is None:
         return False
-    rec["email"] = email.strip().lower()
+    email = email.strip().lower()
+    if email:
+        owner = find_admin_by_email(email)
+        if owner and owner != username:
+            return "email_taken"
+    rec["email"] = email
     _upsert(username, rec)
     return True
 

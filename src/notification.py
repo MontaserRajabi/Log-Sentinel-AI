@@ -41,10 +41,12 @@ import json
 import logging
 import os
 import platform
+import re
 import smtplib
 import sys
 import threading
 import time
+import uuid
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -112,10 +114,11 @@ def _get_emails_for_machine(machine: str) -> list[str]:
 
     return [EMAIL_TO] if EMAIL_TO else []
 
-MIN_PRIORITY     = os.getenv("NOTIFY_MIN_PRIORITY", "HIGH").upper()   # CRITICAL | HIGH | MEDIUM
-COOLDOWN_SEC     = int(os.getenv("NOTIFY_COOLDOWN_SEC", 60))
-SOUND_ENABLED    = os.getenv("NOTIFY_SOUND", "true").lower() == "true"
-POLL_INTERVAL    = 2      # seconds between file checks
+MIN_PRIORITY       = os.getenv("NOTIFY_MIN_PRIORITY", "HIGH").upper()        # desktop notifications minimum
+EMAIL_MIN_PRIORITY = os.getenv("NOTIFY_EMAIL_MIN_PRIORITY", "HIGH").upper()  # email notifications minimum (HIGH or CRITICAL only)
+COOLDOWN_SEC       = int(os.getenv("NOTIFY_COOLDOWN_SEC", 60))
+SOUND_ENABLED      = os.getenv("NOTIFY_SOUND", "true").lower() == "true"
+POLL_INTERVAL      = 2      # seconds between file checks
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -232,11 +235,22 @@ def play_alert_sound(priority: str) -> None:
 # EMAIL NOTIFICATION
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _split_tip_steps(tip: str) -> tuple[list[str], list[str]]:
+    """
+    Split a numbered tip string into (immediate_steps, later_steps).
+    Items 1-2 are urgent "do right now"; items 3+ are preventive "next steps".
+    """
+    if not tip:
+        return [], []
+    steps = [s.strip() for s in re.split(r'\s*\d+\.\s+', tip.strip()) if s.strip()]
+    return steps[:2], steps[2:]
+
+
 def send_email_notification(alert: dict, recipients: list[str] | None = None) -> bool:
     """
-    Send an email alert via SMTP.
-    recipients: list of email addresses — defaults to users assigned to the
-                alert's source_machine, falling back to NOTIFY_EMAIL_TO.
+    Send a stand-alone (non-threaded) email alert via SMTP.
+    Every email has a unique subject so it never appears as a reply/thread.
+    Only HIGH and CRITICAL alerts are sent (controlled by EMAIL_MIN_PRIORITY).
     Returns True if at least one email was sent successfully.
     """
     if not EMAIL_ENABLED:
@@ -259,8 +273,8 @@ def send_email_notification(alert: dict, recipients: list[str] | None = None) ->
     DASHBOARD_URL = "https://log-sentinel-ai-h3bmh3hbh6e3c6bx.francecentral-01.azurewebsites.net"
 
     threats    = ", ".join(alert.get("threat_categories", [])) or "Unknown"
+    threats_hr = threats.replace("_", " ").title()
     priority   = alert.get("priority", "MEDIUM")
-    score      = alert.get("anomaly_score", 0)
     machine    = alert.get("source_machine", "unknown")
     block_id   = alert.get("block_id", "N/A")
     alert_time = alert.get("alert_at", datetime.now().isoformat())
@@ -292,11 +306,18 @@ def send_email_notification(alert: dict, recipients: list[str] | None = None) ->
     cvss = alert.get("cvss_score") or _PRIORITY_CVSS.get(priority, 5.0)
 
     priority_color = {
-        "CRITICAL": "#7c3aed",
-        "HIGH"    : "#c0392b",
-        "MEDIUM"  : "#e67e22",
-        "LOW"     : "#27ae60",
-    }.get(priority, "#e67e22")
+        "CRITICAL": "#b91c1c",
+        "HIGH"    : "#c2410c",
+        "MEDIUM"  : "#b45309",
+        "LOW"     : "#15803d",
+    }.get(priority, "#b45309")
+
+    priority_bg = {
+        "CRITICAL": "#fef2f2",
+        "HIGH"    : "#fff7ed",
+        "MEDIUM"  : "#fffbeb",
+        "LOW"     : "#f0fdf4",
+    }.get(priority, "#fffbeb")
 
     priority_emoji = {
         "CRITICAL": "🔴",
@@ -305,144 +326,182 @@ def send_email_notification(alert: dict, recipients: list[str] | None = None) ->
         "LOW"     : "🟢",
     }.get(priority, "🟡")
 
-    subject = f"[Log Sentinel AI] {priority_emoji} {priority} Alert on {machine} — {vuln_name or threats}"
+    urgency_label = {
+        "CRITICAL": "Act immediately — within the next 15 minutes",
+        "HIGH"    : "Act today — within the next few hours",
+        "MEDIUM"  : "Review soon — within 24 hours",
+        "LOW"     : "Review when convenient",
+    }.get(priority, "Review when convenient")
 
-    # Build CVE badge list
-    cve_badges = ""
-    if cve_ids:
-        badges = "".join(
-            f'<span style="display:inline-block; background:#1a1a2e; color:#e0e0ff; '
-            f'border-radius:4px; padding:2px 8px; margin:2px; font-size:12px; '
-            f'font-family:monospace;">{cid}</span>'
-            for cid in cve_ids[:5]
-        )
-        cve_badges = f"""
-        <tr>
-            <td style="padding:10px 8px; font-weight:bold; width:160px; vertical-align:top;">CVE References</td>
-            <td style="padding:10px 8px;">{badges}</td>
-        </tr>"""
-
-    cwe_row = f"""
-        <tr style="background:#f8f8f8;">
-            <td style="padding:10px 8px; font-weight:bold; vertical-align:top;">CWE Classification</td>
-            <td style="padding:10px 8px; font-family:monospace; font-size:13px;">{cwe}</td>
-        </tr>""" if cwe else ""
-
-    # Format remediation tip as numbered list
-    tip_html = ""
-    if tip:
-        tip_lines = [t.strip() for t in tip.split("\n") if t.strip()]
-        items_html = "".join(
-            f'<li style="margin-bottom:6px;">{line.lstrip("0123456789. ")}</li>'
-            for line in tip_lines
-        )
-        tip_html = f"""
-    <div style="margin:20px 0; padding:16px; background:#f0f7ff; border-left:4px solid #2980b9; border-radius:4px;">
-        <p style="margin:0 0 10px 0; font-weight:bold; color:#1a5276; font-size:15px;">
-            🛡️ Recommended Actions
-        </p>
-        <ol style="margin:0; padding-left:20px; color:#1a3a4a; line-height:1.7;">
-            {items_html}
-        </ol>
-    </div>"""
-
-    vuln_desc_html = f"""
-    <div style="margin:16px 0; padding:14px; background:#fff8f0; border-left:4px solid {priority_color}; border-radius:4px;">
-        <p style="margin:0; color:#4a3000; font-size:14px; line-height:1.6;">{vuln_desc}</p>
-    </div>""" if vuln_desc else ""
-
-    detection_badge = (
-        '<span style="background:#6c757d; color:#fff; padding:2px 8px; border-radius:4px; font-size:11px;">RULE-BASED</span>'
-        if rule_based else
-        '<span style="background:#0d6efd; color:#fff; padding:2px 8px; border-radius:4px; font-size:11px;">ML MODEL</span>'
+    # ── Unique subject — timestamp makes every email a new thread ─────────
+    time_display = alert_time[:19].replace("T", " ") if "T" in alert_time else alert_time[:19]
+    subject = (
+        f"[Log Sentinel AI] {priority_emoji} {priority} Alert — "
+        f"{machine} at {time_display}"
     )
 
-    body_html = f"""
-    <html>
-    <body style="font-family: 'Segoe UI', Arial, sans-serif; color: #1a1a1a; background: #f4f4f4; margin:0; padding:0;">
-    <div style="max-width:640px; margin:30px auto; background:#ffffff; border-radius:8px; overflow:hidden; box-shadow:0 2px 8px rgba(0,0,0,0.12);">
+    # ── Split tip into "right now" (urgent) vs "next steps" (preventive) ──
+    immediate_steps, later_steps = _split_tip_steps(tip)
 
-        <!-- Header -->
-        <div style="background:{priority_color}; padding:24px 28px;">
-            <p style="margin:0; color:rgba(255,255,255,0.85); font-size:12px; letter-spacing:1px; text-transform:uppercase;">Log Sentinel AI — Security Alert</p>
-            <h1 style="margin:8px 0 0 0; color:#ffffff; font-size:22px; font-weight:700;">
-                {priority_emoji} {priority} Priority Threat Detected
-            </h1>
-            <p style="margin:6px 0 0 0; color:rgba(255,255,255,0.9); font-size:15px;">
-                <strong>{vuln_name or threats}</strong>
+    def _li(text: str, color: str = "#1a1a1a") -> str:
+        return (
+            f'<li style="margin-bottom:10px; padding-left:4px; '
+            f'color:{color}; line-height:1.6;">{text}</li>'
+        )
+
+    immediate_html = ""
+    if immediate_steps:
+        items = "".join(_li(s, "#7f1d1d") for s in immediate_steps)
+        immediate_html = f"""
+        <div style="margin:0 0 16px 0; padding:18px 20px; background:#fef2f2;
+                    border-left:4px solid #dc2626; border-radius:6px;">
+            <p style="margin:0 0 10px 0; font-size:15px; font-weight:700;
+                      color:#991b1b;">
+                🚨 Do This Right Now
             </p>
-        </div>
+            <ul style="margin:0; padding-left:18px;">
+                {items}
+            </ul>
+        </div>"""
 
-        <!-- Body -->
-        <div style="padding:24px 28px;">
-
-            <!-- Alert details table -->
-            <table style="border-collapse:collapse; width:100%; font-size:14px;">
-                <tr style="background:#f8f8f8;">
-                    <td style="padding:10px 8px; font-weight:bold; width:160px;">Machine</td>
-                    <td style="padding:10px 8px; font-family:monospace; font-size:13px; color:#c0392b;">
-                        {machine}
-                    </td>
-                </tr>
-                <tr>
-                    <td style="padding:10px 8px; font-weight:bold;">Alert Time</td>
-                    <td style="padding:10px 8px;">{alert_time.replace("T", " ").replace("+00:00","").replace("Z","") + " UTC"}</td>
-                </tr>
-                <tr style="background:#f8f8f8;">
-                    <td style="padding:10px 8px; font-weight:bold;">Threat Categories</td>
-                    <td style="padding:10px 8px;">{threats.replace("_", " ").title()}</td>
-                </tr>
-                <tr>
-                    <td style="padding:10px 8px; font-weight:bold;">Detection Engine</td>
-                    <td style="padding:10px 8px;">{detection_badge}</td>
-                </tr>
-                <tr style="background:#f8f8f8;">
-                    <td style="padding:10px 8px; font-weight:bold;">CVSS Score</td>
-                    <td style="padding:10px 8px; font-weight:bold; color:{priority_color}; font-size:16px;">
-                        {cvss:.1f} <span style="font-size:12px; color:#666; font-weight:normal;">/ 10</span>
-                    </td>
-                </tr>
-                <tr>
-                    <td style="padding:10px 8px; font-weight:bold;">Events Analyzed</td>
-                    <td style="padding:10px 8px;">{n_events} event(s) in this block</td>
-                </tr>
-                <tr style="background:#f8f8f8;">
-                    <td style="padding:10px 8px; font-weight:bold;">Block ID</td>
-                    <td style="padding:10px 8px; font-family:monospace; font-size:11px; color:#555;">{block_id}</td>
-                </tr>
-                {cve_badges}
-                {cwe_row}
-            </table>
-
-            <!-- Vulnerability description -->
-            {vuln_desc_html}
-
-            <!-- Remediation tips -->
-            {tip_html}
-
-            <!-- CTA -->
-            <div style="margin:24px 0 8px 0; text-align:center;">
-                <a href="{DASHBOARD_URL}"
-                   style="display:inline-block; background:{priority_color}; color:#fff;
-                          padding:12px 32px; border-radius:6px; text-decoration:none;
-                          font-weight:bold; font-size:15px; letter-spacing:0.5px;">
-                    View Alert on Dashboard →
-                </a>
-            </div>
-
-        </div>
-
-        <!-- Footer -->
-        <div style="background:#f0f0f0; padding:14px 28px; border-top:1px solid #e0e0e0;">
-            <p style="margin:0; color:#888; font-size:11px; text-align:center;">
-                This alert was generated automatically by Log Sentinel AI.<br>
-                Log in to the dashboard to label this alert, dismiss it, or view full details.
+    later_html = ""
+    if later_steps:
+        items = "".join(_li(s, "#1e3a5f") for s in later_steps)
+        later_html = f"""
+        <div style="margin:0 0 16px 0; padding:18px 20px; background:#eff6ff;
+                    border-left:4px solid #2563eb; border-radius:6px;">
+            <p style="margin:0 0 10px 0; font-size:15px; font-weight:700;
+                      color:#1d4ed8;">
+                📋 Next Steps (when you have time)
             </p>
-        </div>
+            <ol style="margin:0; padding-left:18px;">
+                {items}
+            </ol>
+        </div>"""
 
+    _td_label     = "padding:9px 10px; font-weight:600; color:#374151; width:150px; border-bottom:1px solid #e5e7eb; vertical-align:top; font-size:13px;"
+    _td_val       = "padding:9px 10px; color:#1f2937; border-bottom:1px solid #e5e7eb; font-size:13px;"
+    _td_label_alt = _td_label + "background:#f9fafb;"
+    _td_val_alt   = _td_val   + "background:#f9fafb;"
+
+    # ── CVE references (compact) ──────────────────────────────────────────
+    cve_html = ""
+    if cve_ids:
+        badges = " ".join(
+            f'<code style="background:#1e293b; color:#93c5fd; padding:2px 7px; '
+            f'border-radius:3px; font-size:11px; margin-right:4px;">{cid}</code>'
+            for cid in cve_ids[:5]
+        )
+        cve_html = f'<tr><td style="{_td_label}">CVE References</td><td style="{_td_val}">{badges}</td></tr>'
+
+    detection_label = "Rule-Based Detection" if rule_based else "AI Anomaly Detection"
+
+    body_html = f"""<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0; padding:0; background:#f3f4f6; font-family:'Segoe UI',Arial,sans-serif;">
+<div style="max-width:600px; margin:24px auto; background:#ffffff;
+            border-radius:10px; overflow:hidden;
+            box-shadow:0 4px 20px rgba(0,0,0,0.10);">
+
+    <!-- ── HEADER ── -->
+    <div style="background:{priority_color}; padding:28px 28px 22px 28px;">
+        <p style="margin:0 0 6px 0; color:rgba(255,255,255,0.75);
+                  font-size:11px; letter-spacing:1.5px; text-transform:uppercase;">
+            Log Sentinel AI · Security Alert
+        </p>
+        <h1 style="margin:0 0 6px 0; color:#ffffff; font-size:24px; font-weight:700; line-height:1.2;">
+            {priority_emoji} {priority} Priority Alert
+        </h1>
+        <p style="margin:0; color:rgba(255,255,255,0.9); font-size:14px;">
+            {vuln_name or threats_hr}
+        </p>
     </div>
-    </body></html>
-    """
+
+    <!-- ── URGENCY BANNER ── -->
+    <div style="background:{priority_bg}; padding:10px 28px;
+                border-bottom:1px solid #e5e7eb;">
+        <p style="margin:0; font-size:13px; font-weight:600; color:{priority_color};">
+            ⏱ {urgency_label}
+        </p>
+    </div>
+
+    <!-- ── WHAT HAPPENED ── -->
+    <div style="padding:22px 28px 0 28px;">
+        <h2 style="margin:0 0 10px 0; font-size:16px; color:#111827; font-weight:700;">
+            What happened?
+        </h2>
+        <p style="margin:0 0 12px 0; color:#374151; font-size:14px; line-height:1.7;">
+            Log Sentinel AI detected a <strong>{threats_hr}</strong> event on
+            <strong style="color:{priority_color};">{machine}</strong>.
+            This alert was triggered at <strong>{time_display}</strong> and
+            scored <strong>{cvss:.1f}/10</strong> on the CVSS severity scale
+            ({n_events} system event{'' if n_events == 1 else 's'} analyzed).
+        </p>
+        {f'<p style="margin:0 0 18px 0; color:#4b5563; font-size:13px; line-height:1.7; padding:12px 14px; background:#f9fafb; border-radius:6px; border:1px solid #e5e7eb;">{vuln_desc}</p>' if vuln_desc else ''}
+    </div>
+
+    <!-- ── ACTION STEPS ── -->
+    <div style="padding:6px 28px 6px 28px;">
+        {immediate_html}
+        {later_html}
+    </div>
+
+    <!-- ── ALERT DETAILS TABLE ── -->
+    <div style="padding:0 28px 20px 28px;">
+        <h2 style="margin:0 0 10px 0; font-size:14px; color:#6b7280;
+                   font-weight:600; letter-spacing:0.5px; text-transform:uppercase;">
+            Alert Details
+        </h2>
+        <table style="width:100%; border-collapse:collapse; font-size:13px;
+                      border:1px solid #e5e7eb; border-radius:6px; overflow:hidden;">
+            <tr>
+                <td style="{_td_label_alt}">Machine</td>
+                <td style="{_td_val_alt} font-family:monospace; color:{priority_color}; font-weight:600;">{machine}</td>
+            </tr>
+            <tr>
+                <td style="{_td_label}">Time Detected</td>
+                <td style="{_td_val}">{time_display}</td>
+            </tr>
+            <tr>
+                <td style="{_td_label_alt}">Threat Type</td>
+                <td style="{_td_val_alt}">{threats_hr}</td>
+            </tr>
+            <tr>
+                <td style="{_td_label}">CVSS Score</td>
+                <td style="{_td_val} font-weight:700; color:{priority_color};">{cvss:.1f} / 10</td>
+            </tr>
+            <tr>
+                <td style="{_td_label_alt}">Detection Method</td>
+                <td style="{_td_val_alt}">{detection_label}</td>
+            </tr>
+            {f'<tr><td style="{_td_label}">CWE</td><td style="{_td_val} font-family:monospace;">{cwe}</td></tr>' if cwe else ''}
+            {cve_html}
+        </table>
+    </div>
+
+    <!-- ── CTA BUTTON ── -->
+    <div style="padding:4px 28px 28px 28px; text-align:center;">
+        <a href="{DASHBOARD_URL}"
+           style="display:inline-block; background:{priority_color}; color:#ffffff;
+                  padding:13px 36px; border-radius:7px; text-decoration:none;
+                  font-weight:700; font-size:15px; letter-spacing:0.3px;">
+            Open Dashboard →
+        </a>
+    </div>
+
+    <!-- ── FOOTER ── -->
+    <div style="background:#f9fafb; padding:14px 28px;
+                border-top:1px solid #e5e7eb; text-align:center;">
+        <p style="margin:0; color:#9ca3af; font-size:11px; line-height:1.6;">
+            This alert was sent by Log Sentinel AI. You are receiving this because
+            your account is linked to <strong>{machine}</strong>.<br>
+            Open the dashboard to review, label, or dismiss this alert.
+        </p>
+    </div>
+
+</div>
+</body></html>"""
 
     try:
         sent = False
@@ -456,17 +515,17 @@ def send_email_notification(alert: dict, recipients: list[str] | None = None) ->
                     msg["Subject"] = subject
                     msg["From"]    = EMAIL_FROM
                     msg["To"]      = to_addr
-                    msg.attach(MIMEText(body_html, "html"))
+                    # Message-ID makes each email a completely independent thread
+                    msg["Message-ID"] = f"<sentinel-{uuid.uuid4().hex}@logsentinel>"
+                    msg.attach(MIMEText(body_html, "html", "utf-8"))
                     server.sendmail(EMAIL_FROM, to_addr, msg.as_string())
-                    logger.info("Email alert sent to %s for block %s", to_addr, block_id)
+                    logger.info("Email sent to %s | %s | block=%s", to_addr, priority, block_id)
                     sent = True
                 except Exception as exc:
                     logger.error("Failed to send to %s: %s", to_addr, exc)
         return sent
     except smtplib.SMTPAuthenticationError:
-        logger.error(
-            "Email authentication failed. Check NOTIFY_EMAIL_USER/PASS in .env"
-        )
+        logger.error("Email auth failed. Check NOTIFY_EMAIL_USER/PASS in .env")
         return False
     except Exception as exc:
         logger.error("Failed to send email alert: %s", exc)
@@ -613,8 +672,9 @@ def dispatch(alert: dict) -> None:
     if SOUND_ENABLED:
         channels_used.append("sound")
 
-    # 3. Email — send immediately for every new block that meets priority
-    if EMAIL_ENABLED:
+    # 3. Email — HIGH and CRITICAL only (separate threshold from desktop)
+    _order = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1}
+    if EMAIL_ENABLED and _order.get(priority, 0) >= _order.get(EMAIL_MIN_PRIORITY, 3):
         if send_email_notification(alert):
             channels_used.append("email")
 

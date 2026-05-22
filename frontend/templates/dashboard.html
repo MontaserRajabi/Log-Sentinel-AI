@@ -60,6 +60,49 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);height:100vh
 .nav-divider{height:1px;background:var(--border);margin:6px 14px;}
 .sidebar-footer{border-top:1px solid var(--border);padding:6px 0;flex-shrink:0;}
 
+/* ── SETTINGS DRAWER ─────────────────────────────────────────────── */
+.settings-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.55);backdrop-filter:blur(3px);z-index:1000;opacity:0;pointer-events:none;transition:opacity .22s;}
+.settings-overlay.open{opacity:1;pointer-events:all;}
+.settings-drawer{position:fixed;top:0;right:0;height:100vh;width:380px;background:var(--surface);border-left:1px solid var(--border);z-index:1001;display:flex;flex-direction:column;transform:translateX(100%);transition:transform .26s cubic-bezier(.4,0,.2,1);box-shadow:-8px 0 40px rgba(0,0,0,0.45);}
+.settings-drawer.open{transform:translateX(0);}
+.drawer-head{padding:18px 18px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
+.drawer-user{display:flex;align-items:center;gap:12px;}
+.drawer-avatar{width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,var(--accent),#0e8a9c);display:flex;align-items:center;justify-content:center;font-size:1rem;font-weight:700;color:#0d1117;flex-shrink:0;letter-spacing:-0.5px;}
+.drawer-username{font-size:0.95rem;font-weight:600;color:var(--text);line-height:1.2;}
+.drawer-role{font-size:0.6rem;font-weight:600;letter-spacing:1.4px;text-transform:uppercase;color:var(--muted);font-family:var(--mono);margin-top:2px;}
+.drawer-close{background:none;border:none;cursor:pointer;color:var(--muted);width:30px;height:30px;border-radius:6px;display:flex;align-items:center;justify-content:center;transition:color .15s,background .15s;flex-shrink:0;}
+.drawer-close:hover{color:var(--text);background:var(--surface2);}
+.drawer-body{flex:1;overflow-y:auto;padding-bottom:20px;}
+.drawer-section{padding:18px 18px 4px;border-bottom:1px solid var(--border);}
+.drawer-section:last-child{border-bottom:none;}
+.drawer-section-title{font-size:0.63rem;font-weight:600;letter-spacing:1.6px;text-transform:uppercase;color:var(--muted);margin-bottom:14px;font-family:var(--mono);display:flex;align-items:center;gap:7px;}
+.drawer-section-title svg{opacity:0.5;}
+.d-field{margin-bottom:12px;}
+.d-field label{display:block;font-size:0.7rem;font-weight:600;color:var(--muted);letter-spacing:0.4px;text-transform:uppercase;margin-bottom:5px;}
+.d-field input{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:9px 12px;color:var(--text);font-family:var(--font);font-size:0.84rem;outline:none;transition:border-color .15s,box-shadow .15s;}
+.d-field input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(23,195,216,0.1);}
+.d-btn{width:100%;padding:9px;background:var(--accent);border:none;border-radius:7px;color:#0d1117;font-family:var(--font);font-size:0.84rem;font-weight:700;cursor:pointer;transition:filter .15s;margin-top:2px;}
+.d-btn:hover{filter:brightness(1.1);}
+.d-btn:disabled{opacity:0.6;cursor:default;}
+.d-toast{font-size:0.76rem;border-radius:6px;padding:7px 11px;margin-top:8px;align-items:center;gap:6px;display:none;}
+.d-toast.show-ok{display:flex;background:rgba(63,185,80,0.1);border:1px solid rgba(63,185,80,0.25);color:var(--success);}
+.d-toast.show-err{display:flex;background:rgba(248,81,73,0.08);border:1px solid rgba(248,81,73,0.25);color:var(--danger);}
+.d-pw-hints{margin-top:4px;font-size:0.68rem;line-height:2;font-family:var(--mono);}
+.d-ph{color:var(--danger);transition:color .15s;}
+.d-ph.ok{color:var(--success);}
+.machine-info-row{display:flex;align-items:center;gap:10px;background:rgba(23,195,216,0.05);border:1px solid rgba(23,195,216,0.14);border-radius:8px;padding:11px 14px;}
+.machine-info-row .mi-dot{width:8px;height:8px;border-radius:50%;background:var(--accent);flex-shrink:0;animation:pulse 2s infinite;}
+.machine-info-row .mi-val{font-size:0.86rem;color:var(--accent);font-family:var(--mono);font-weight:500;}
+.no-machine-note{font-size:0.78rem;color:var(--muted);line-height:1.7;padding:2px 0;}
+
+/* ── TOPBAR USER CHIP ─────────────────────────────────────────────── */
+.topbar-user{display:flex;align-items:center;gap:8px;padding:4px 10px 4px 6px;border:1px solid var(--border);border-radius:8px;cursor:pointer;background:none;transition:border-color .15s,background .15s;color:var(--text);}
+.topbar-user:hover{border-color:var(--accent);background:var(--surface2);}
+.topbar-avatar{width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,var(--accent),#0e8a9c);display:flex;align-items:center;justify-content:center;font-size:0.7rem;font-weight:700;color:#0d1117;flex-shrink:0;}
+.topbar-uname{font-size:0.78rem;font-weight:600;letter-spacing:-0.1px;}
+.topbar-chevron{opacity:0.5;transition:opacity .15s;}
+.topbar-user:hover .topbar-chevron{opacity:1;}
+
 /* ── PAGE WRAPPER ────────────────────────────────────────────────── */
 .page-wrapper{flex:1;display:flex;flex-direction:column;overflow:hidden;}
 
@@ -319,10 +362,10 @@ td.time-col{width:10%;font-size:0.7rem;}
   </div>
 
   <div class="sidebar-footer">
-    <a class="nav-item" href="/profile">
-      <svg class="nav-icon" viewBox="0 0 16 16" fill="currentColor"><path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm2-3a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm4 8c0 1-1 1-1 1H3s-1 0-1-1 1-4 6-4 6 3 6 4zm-1-.004c-.001-.246-.154-.986-.832-1.664C11.516 10.68 10.029 10 8 10c-2.029 0-3.516.68-4.168 1.332-.678.678-.83 1.418-.832 1.664h10z"/></svg>
-      Profile
-    </a>
+    <button class="nav-item" onclick="openSettings()">
+      <svg class="nav-icon" viewBox="0 0 16 16" fill="currentColor"><path d="M9.405 1.05c-.413-1.4-2.397-1.4-2.81 0l-.1.34a1.464 1.464 0 0 1-2.105.872l-.31-.17c-1.283-.698-2.686.705-1.987 1.987l.169.311c.446.82.023 1.841-.872 2.105l-.34.1c-1.4.413-1.4 2.397 0 2.81l.34.1a1.464 1.464 0 0 1 .872 2.105l-.17.31c-.698 1.283.705 2.686 1.987 1.987l.311-.169a1.464 1.464 0 0 1 2.105.872l.1.34c.413 1.4 2.397 1.4 2.81 0l.1-.34a1.464 1.464 0 0 1 2.105-.872l.31.17c1.283.698 2.686-.705 1.987-1.987l-.169-.311a1.464 1.464 0 0 1 .872-2.105l.34-.1c1.4-.413 1.4-2.397 0-2.81l-.34-.1a1.464 1.464 0 0 1-.872-2.105l.17-.31c.698-1.283-.705-2.686-1.987-1.987l-.311.169a1.464 1.464 0 0 1-2.105-.872l-.1-.34zM8 10.93a2.929 2.929 0 1 1 0-5.86 2.929 2.929 0 0 1 0 5.858z"/></svg>
+      Settings
+    </button>
     <a class="nav-item danger" href="/logout">
       <svg class="nav-icon" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M10 12.5a.5.5 0 0 1-.5.5h-8a.5.5 0 0 1-.5-.5v-9a.5.5 0 0 1 .5-.5h8a.5.5 0 0 1 .5.5v2a.5.5 0 0 0 1 0v-2A1.5 1.5 0 0 0 9.5 2h-8A1.5 1.5 0 0 0 0 3.5v9A1.5 1.5 0 0 0 1.5 14h8a1.5 1.5 0 0 0 1.5-1.5v-2a.5.5 0 0 0-1 0v2z"/><path fill-rule="evenodd" d="M15.854 8.354a.5.5 0 0 0 0-.708l-3-3a.5.5 0 0 0-.708.708L14.293 7.5H5.5a.5.5 0 0 0 0 1h8.793l-2.147 2.146a.5.5 0 0 0 .708.708l3-3z"/></svg>
       Sign Out
@@ -344,6 +387,11 @@ td.time-col{width:10%;font-size:0.7rem;}
         <div class="machines-panel" id="machines-panel"></div>
       </div>
       <span class="separator"></span>
+      <button class="topbar-user" onclick="openSettings()" title="Account Settings">
+        <div class="topbar-avatar" id="topbar-av">{{ session.admin[0].upper() if session.admin else 'A' }}</div>
+        <span class="topbar-uname">{{ session.admin }}</span>
+        <svg class="topbar-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
       <button class="btn-icon" id="theme-btn" onclick="toggleTheme()" title="Toggle theme">🌙</button>
     </div>
   </header>
@@ -1198,6 +1246,129 @@ function closeModal(id){ document.getElementById(id).classList.remove('open'); }
 document.querySelectorAll('.overlay').forEach(o=>{
   o.addEventListener('click',e=>{ if(e.target===o) o.classList.remove('open'); });
 });
+
+// ── Settings Drawer ──────────────────────────────────────────────────────────
+function openSettings(){ document.getElementById('settings-overlay').classList.add('open'); document.getElementById('settings-drawer').classList.add('open'); }
+function closeSettings(){ document.getElementById('settings-overlay').classList.remove('open'); document.getElementById('settings-drawer').classList.remove('open'); }
+document.getElementById('settings-overlay').addEventListener('click', closeSettings);
+document.addEventListener('keydown', e => { if(e.key==='Escape') closeSettings(); });
+
+function _drawerToast(id, msg, type){
+  const el = document.getElementById(id);
+  el.textContent = msg;
+  el.className = 'd-toast show-' + type;
+  setTimeout(()=>{ el.className='d-toast'; }, 4000);
+}
+function _dph(id, pass){
+  const el = document.getElementById(id);
+  if(!el) return;
+  el.classList.toggle('ok', pass);
+  el.textContent = (pass?'✓':'✗') + el.textContent.slice(1);
+}
+function checkDrawerPw(){
+  const pw = document.getElementById('d-npw').value || '';
+  _dph('d-ph-len', pw.length>=8);
+  _dph('d-ph-num', /\d/.test(pw));
+  _dph('d-ph-sym', /[!@#$%^&*()\-_=+\[\]{};:'",.<>/?\\|`~]/.test(pw));
+}
+async function saveDrawerEmail(e){
+  e.preventDefault();
+  const btn = document.getElementById('d-email-btn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  const email = document.getElementById('d-email').value.trim();
+  const fd = new FormData(); fd.append('action','update_email'); fd.append('email',email);
+  const res = await fetch('/profile', {method:'POST', body:fd});
+  btn.disabled = false; btn.textContent = 'Save Email';
+  const txt = await res.text();
+  if(txt.includes('Email updated')){ _drawerToast('d-email-toast','Email updated successfully.','ok'); }
+  else if(txt.includes('already in use')){ _drawerToast('d-email-toast','That email is already used by another account.','err'); }
+  else if(txt.includes('valid email')){ _drawerToast('d-email-toast','Enter a valid email address.','err'); }
+  else { _drawerToast('d-email-toast','Email saved.','ok'); }
+}
+async function saveDrawerPw(e){
+  e.preventDefault();
+  const cur = document.getElementById('d-cpw').value;
+  const pw  = document.getElementById('d-npw').value;
+  const pw2 = document.getElementById('d-npw2').value;
+  if(pw.length<8){ _drawerToast('d-pw-toast','Password must be at least 8 characters.','err'); return; }
+  if(!/\d/.test(pw)){ _drawerToast('d-pw-toast','Password must contain at least one number.','err'); return; }
+  if(!/[!@#$%^&*()\-_=+\[\]{};:'",.<>/?\\|`~]/.test(pw)){ _drawerToast('d-pw-toast','Password must contain at least one symbol.','err'); return; }
+  if(pw!==pw2){ _drawerToast('d-pw-toast','Passwords do not match.','err'); return; }
+  const btn = document.getElementById('d-pw-btn');
+  btn.disabled=true; btn.textContent='Updating…';
+  const fd = new FormData(); fd.append('action','change_password'); fd.append('current_password',cur); fd.append('new_password',pw); fd.append('confirm_password',pw2);
+  const res = await fetch('/profile', {method:'POST', body:fd});
+  btn.disabled=false; btn.textContent='Update Password';
+  const text = await res.text();
+  if(text.includes('Password updated')){ _drawerToast('d-pw-toast','Password updated successfully.','ok'); document.getElementById('d-cpw').value=''; document.getElementById('d-npw').value=''; document.getElementById('d-npw2').value=''; }
+  else { _drawerToast('d-pw-toast','Incorrect current password.','err'); }
+}
 </script>
 </body>
 </html>
+
+<!-- ══ SETTINGS DRAWER ══════════════════════════════════════════════ -->
+<div class="settings-overlay" id="settings-overlay"></div>
+<aside class="settings-drawer" id="settings-drawer">
+  <div class="drawer-head">
+    <div class="drawer-user">
+      <div class="drawer-avatar">{{ session.admin[0].upper() if session.admin else 'A' }}</div>
+      <div>
+        <div class="drawer-username">{{ session.admin }}</div>
+        <div class="drawer-role">{{ session.role or 'admin' }}</div>
+      </div>
+    </div>
+    <button class="drawer-close" onclick="closeSettings()" title="Close">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M2.146 2.854a.5.5 0 1 1 .708-.708L8 7.293l5.146-5.147a.5.5 0 0 1 .708.708L8.707 8l5.147 5.146a.5.5 0 0 1-.708.708L8 8.707l-5.146 5.147a.5.5 0 0 1-.708-.708L7.293 8 2.146 2.854z"/></svg>
+    </button>
+  </div>
+
+  <div class="drawer-body">
+
+    <!-- Recovery Email -->
+    <div class="drawer-section">
+      <div class="drawer-section-title">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M0 4a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V4Zm2-1a1 1 0 0 0-1 1v.217l7 4.2 7-4.2V4a1 1 0 0 0-1-1H2Zm13 2.383-4.708 2.825L15 11.105V5.383Zm-.034 6.876-5.64-3.471L8 9.583l-1.326-.795-5.64 3.47A1 1 0 0 0 2 13h12a1 1 0 0 0 .966-.741ZM1 11.105l4.708-2.897L1 5.383v5.722Z"/></svg>
+        Recovery Email
+      </div>
+      <form onsubmit="saveDrawerEmail(event)">
+        <div class="d-field">
+          <label>Email Address</label>
+          <input type="email" id="d-email" placeholder="your@email.com" value="{{ profile_email or '' }}"/>
+        </div>
+        <button class="d-btn" type="submit" id="d-email-btn">Save Email</button>
+        <div class="d-toast" id="d-email-toast"></div>
+      </form>
+    </div>
+
+    <!-- Change Password -->
+    <div class="drawer-section">
+      <div class="drawer-section-title">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a2 2 0 0 1 2 2v4H6V3a2 2 0 0 1 2-2zm3 6V3a3 3 0 0 0-6 0v4a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z"/></svg>
+        Change Password
+      </div>
+      <form onsubmit="saveDrawerPw(event)">
+        <div class="d-field">
+          <label>Current Password</label>
+          <input type="password" id="d-cpw" required/>
+        </div>
+        <div class="d-field">
+          <label>New Password</label>
+          <input type="password" id="d-npw" minlength="8" required oninput="checkDrawerPw()"/>
+          <div class="d-pw-hints">
+            <span class="d-ph" id="d-ph-len">✗ 8+ characters &nbsp;</span>
+            <span class="d-ph" id="d-ph-num">✗ one number &nbsp;</span>
+            <span class="d-ph" id="d-ph-sym">✗ one symbol</span>
+          </div>
+        </div>
+        <div class="d-field">
+          <label>Confirm New Password</label>
+          <input type="password" id="d-npw2" minlength="8" required/>
+        </div>
+        <button class="d-btn" type="submit" id="d-pw-btn">Update Password</button>
+        <div class="d-toast" id="d-pw-toast"></div>
+      </form>
+    </div>
+
+  </div>
+</aside>

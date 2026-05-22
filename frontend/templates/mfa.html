@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>LogSentinelAI — Verify Identity</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<style>
+:root {
+  --bg:      #0d1117;
+  --surface: #161b22;
+  --surface2:#1c2230;
+  --border:  #30363d;
+  --accent:  #17c3d8;
+  --accent2: #0e8a9c;
+  --danger:  #f85149;
+  --success: #3fb950;
+  --text:    #e6edf3;
+  --muted:   #8b949e;
+  --font:    'Inter', -apple-system, sans-serif;
+  --mono:    'JetBrains Mono', monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{
+  background:var(--bg);
+  min-height:100vh;
+  display:flex;align-items:center;justify-content:center;
+  font-family:var(--font);
+  position:relative;overflow:hidden;
+}
+body::before{
+  content:'';position:fixed;inset:0;
+  background-image:radial-gradient(circle, rgba(23,195,216,0.06) 1px, transparent 1px);
+  background-size:28px 28px;pointer-events:none;
+}
+body::after{
+  content:'';position:fixed;
+  width:600px;height:600px;border-radius:50%;
+  background:radial-gradient(circle, rgba(23,195,216,0.06) 0%, transparent 65%);
+  top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:none;
+}
+.card{
+  position:relative;width:420px;
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:12px;padding:40px 36px 36px;
+  box-shadow:0 0 0 1px rgba(23,195,216,0.04), 0 24px 64px rgba(0,0,0,0.4);
+  z-index:1;animation:fadeUp .4s ease both;
+}
+@keyframes fadeUp{from{opacity:0;transform:translateY(16px);}}
+.card::before{
+  content:'';position:absolute;
+  top:0;left:20px;right:20px;height:2px;
+  background:linear-gradient(90deg, transparent, var(--accent), transparent);
+  border-radius:0 0 2px 2px;opacity:0.6;
+}
+.brand{display:flex;align-items:center;gap:12px;margin-bottom:32px;}
+.brand-name{font-size:1.1rem;font-weight:700;color:var(--text);letter-spacing:-0.3px;}
+.brand-name em{color:var(--accent);font-style:normal;}
+.brand-sub{font-size:0.62rem;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase;font-family:var(--mono);margin-top:1px;}
+
+/* Shield icon */
+.shield-wrap{
+  text-align:center;margin-bottom:24px;
+}
+.shield-wrap svg{width:48px;height:48px;}
+
+.page-heading{font-size:1.2rem;font-weight:700;color:var(--text);margin-bottom:6px;text-align:center;}
+.page-sub{font-size:0.82rem;color:var(--muted);margin-bottom:28px;text-align:center;line-height:1.6;}
+.page-sub strong{color:var(--accent);}
+
+.alert-box{
+  border-radius:8px;padding:12px 14px;font-size:0.82rem;
+  margin-bottom:20px;display:flex;align-items:center;gap:8px;
+}
+.alert-box.err{background:rgba(248,81,73,0.08);border:1px solid rgba(248,81,73,0.28);color:var(--danger);}
+.alert-box.warn{background:rgba(210,153,34,0.08);border:1px solid rgba(210,153,34,0.28);color:#d29922;}
+
+/* OTP digit inputs */
+.otp-row{
+  display:flex;gap:10px;justify-content:center;margin-bottom:24px;
+}
+.otp-digit{
+  width:48px;height:56px;
+  background:var(--surface2);
+  border:1px solid var(--border);
+  border-radius:8px;
+  color:var(--text);
+  font-family:var(--mono);
+  font-size:1.5rem;
+  font-weight:700;
+  text-align:center;
+  outline:none;
+  transition:border-color .15s, box-shadow .15s;
+  caret-color:var(--accent);
+}
+.otp-digit:focus{
+  border-color:var(--accent);
+  box-shadow:0 0 0 3px rgba(23,195,216,0.12);
+}
+/* Hidden real input that holds the full OTP */
+#otp-hidden{display:none;}
+
+.btn{
+  width:100%;padding:11px;
+  background:var(--accent);border:none;border-radius:8px;
+  color:#0d1117;font-family:var(--font);
+  font-size:0.9rem;font-weight:700;letter-spacing:0.3px;
+  cursor:pointer;transition:filter .15s, transform .1s;margin-top:4px;
+}
+.btn:hover{filter:brightness(1.1);}
+.btn:active{transform:scale(.99);}
+
+.resend-row{
+  display:flex;align-items:center;justify-content:center;
+  gap:8px;margin-top:20px;
+}
+.resend-label{font-size:0.78rem;color:var(--muted);}
+.resend-btn{
+  background:transparent;border:none;padding:0;
+  color:var(--accent);font-family:var(--font);
+  font-size:0.78rem;font-weight:600;cursor:pointer;
+  text-decoration:underline;text-decoration-color:rgba(23,195,216,0.4);
+  transition:color .15s;
+}
+.resend-btn:hover{color:#fff;}
+.resend-btn:disabled{color:var(--muted);cursor:default;text-decoration:none;}
+
+.back-link{
+  display:block;text-align:center;
+  font-size:0.78rem;color:var(--muted);
+  text-decoration:none;margin-top:18px;
+  transition:color .15s;
+}
+.back-link:hover{color:var(--accent);}
+
+/* Countdown */
+.countdown{
+  font-family:var(--mono);font-size:0.72rem;color:var(--muted);
+  text-align:center;margin-bottom:20px;
+}
+.countdown.urgent{color:var(--danger);}
+</style>
+</head>
+<body>
+<div class="card">
+
+  <!-- Brand -->
+  <div class="brand">
+    <svg viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg" style="width:36px;height:36px;">
+      <circle cx="6"  cy="12" r="2.5" fill="#17c3d8" opacity=".85"/>
+      <circle cx="6"  cy="24" r="2.5" fill="#17c3d8" opacity=".6"/>
+      <circle cx="18" cy="5"  r="2.5" fill="#17c3d8" opacity=".8"/>
+      <circle cx="18" cy="18" r="3.5" fill="#17c3d8"/>
+      <circle cx="18" cy="31" r="2.5" fill="#17c3d8" opacity=".6"/>
+      <circle cx="30" cy="12" r="2.5" fill="#17c3d8" opacity=".85"/>
+      <circle cx="30" cy="24" r="2.5" fill="#17c3d8" opacity=".6"/>
+      <line x1="6"  y1="12" x2="18" y2="12" stroke="#17c3d8" stroke-width="1.5" opacity=".5"/>
+      <line x1="6"  y1="24" x2="18" y2="24" stroke="#17c3d8" stroke-width="1.5" opacity=".4"/>
+      <line x1="18" y1="5"  x2="18" y2="31" stroke="#17c3d8" stroke-width="1.5" opacity=".4"/>
+      <line x1="18" y1="12" x2="30" y2="12" stroke="#17c3d8" stroke-width="1.5" opacity=".5"/>
+      <line x1="18" y1="24" x2="30" y2="24" stroke="#17c3d8" stroke-width="1.5" opacity=".4"/>
+    </svg>
+    <div>
+      <div class="brand-name">Log<em>Sentinel</em>AI</div>
+      <div class="brand-sub">Security Platform</div>
+    </div>
+  </div>
+
+  <!-- Shield -->
+  <div class="shield-wrap">
+    <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M24 4L8 11v13c0 9.4 6.8 18.2 16 20.4C33.2 42.2 40 33.4 40 24V11L24 4z"
+            fill="rgba(23,195,216,0.1)" stroke="#17c3d8" stroke-width="2" stroke-linejoin="round"/>
+      <path d="M17 24l5 5 9-9" stroke="#17c3d8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+  </div>
+
+  <h1 class="page-heading">Two-Factor Verification</h1>
+  <p class="page-sub">
+    We sent a 6-digit code to<br>
+    <strong>{{ email_hint }}</strong>
+  </p>
+
+  {% if error %}
+  <div class="alert-box {{ 'warn' if 'expired' in error.lower() or 'too many' in error.lower() else 'err' }}">
+    <span>{{ '⏱' if 'expired' in error.lower() else ('🔒' if 'too many' in error.lower() else '⚠') }}</span>
+    {{ error }}
+  </div>
+  {% endif %}
+
+  {% if expired | default(false) %}
+  <a class="back-link" href="/login" style="display:block;text-align:center;margin-top:8px;">
+    ← Back to sign in
+  </a>
+  {% else %}
+
+  <!-- Countdown -->
+  <div class="countdown" id="countdown">Code expires in <span id="timer">10:00</span></div>
+
+  <!-- OTP form -->
+  <form method="POST" id="otp-form">
+    <input type="hidden" name="otp" id="otp-hidden"/>
+    <div class="otp-row" id="otp-row">
+      <input class="otp-digit" type="text" inputmode="numeric" maxlength="1" autocomplete="off" data-idx="0"/>
+      <input class="otp-digit" type="text" inputmode="numeric" maxlength="1" autocomplete="off" data-idx="1"/>
+      <input class="otp-digit" type="text" inputmode="numeric" maxlength="1" autocomplete="off" data-idx="2"/>
+      <input class="otp-digit" type="text" inputmode="numeric" maxlength="1" autocomplete="off" data-idx="3"/>
+      <input class="otp-digit" type="text" inputmode="numeric" maxlength="1" autocomplete="off" data-idx="4"/>
+      <input class="otp-digit" type="text" inputmode="numeric" maxlength="1" autocomplete="off" data-idx="5"/>
+    </div>
+    <button class="btn" type="submit" id="verify-btn">Verify &amp; Sign In</button>
+  </form>
+
+  <!-- Resend -->
+  <div class="resend-row">
+    <span class="resend-label">Didn't get it?</span>
+    <form method="POST" action="/mfa/resend" style="display:inline;">
+      <button type="submit" class="resend-btn" id="resend-btn">Resend code</button>
+    </form>
+  </div>
+
+  <a class="back-link" href="/login">← Back to sign in</a>
+
+  {% endif %}
+</div>
+
+<script>
+// ── OTP digit input handling ─────────────────────────────────────────────────
+const digits  = Array.from(document.querySelectorAll('.otp-digit'));
+const hidden  = document.getElementById('otp-hidden');
+const form    = document.getElementById('otp-form');
+
+function syncHidden() {
+  hidden.value = digits.map(d => d.value).join('');
+}
+
+digits.forEach((d, i) => {
+  // Auto-focus first box
+  if (i === 0) setTimeout(() => d.focus(), 100);
+
+  d.addEventListener('input', e => {
+    // Accept only digits
+    d.value = d.value.replace(/\D/g, '').slice(-1);
+    syncHidden();
+    if (d.value && i < 5) digits[i + 1].focus();
+    // Auto-submit when all 6 filled
+    if (hidden.value.length === 6) form.submit();
+  });
+
+  d.addEventListener('keydown', e => {
+    if (e.key === 'Backspace' && !d.value && i > 0) {
+      digits[i - 1].focus();
+      digits[i - 1].value = '';
+      syncHidden();
+    }
+    if (e.key === 'ArrowLeft'  && i > 0) digits[i - 1].focus();
+    if (e.key === 'ArrowRight' && i < 5) digits[i + 1].focus();
+  });
+
+  // Handle paste of full 6-digit code
+  d.addEventListener('paste', e => {
+    e.preventDefault();
+    const text = (e.clipboardData || window.clipboardData).getData('text').replace(/\D/g, '');
+    text.split('').slice(0, 6).forEach((ch, j) => {
+      if (digits[j]) digits[j].value = ch;
+    });
+    syncHidden();
+    const next = Math.min(text.length, 5);
+    digits[next].focus();
+    if (text.length >= 6) form.submit();
+  });
+});
+
+// ── Countdown timer ──────────────────────────────────────────────────────────
+const timerEl     = document.getElementById('timer');
+const countdownEl = document.getElementById('countdown');
+let   remaining   = 10 * 60; // 10 minutes in seconds
+
+function pad(n) { return String(n).padStart(2, '0'); }
+
+const tick = setInterval(() => {
+  remaining--;
+  if (remaining <= 0) {
+    clearInterval(tick);
+    timerEl.textContent = '0:00';
+    countdownEl.classList.add('urgent');
+    countdownEl.textContent = 'Code expired — request a new one below.';
+    document.getElementById('verify-btn').disabled = true;
+    return;
+  }
+  const m = Math.floor(remaining / 60);
+  const s = remaining % 60;
+  timerEl.textContent = `${m}:${pad(s)}`;
+  if (remaining <= 60) countdownEl.classList.add('urgent');
+}, 1000);
+
+// ── Resend cooldown (30s) ────────────────────────────────────────────────────
+const resendBtn = document.getElementById('resend-btn');
+if (resendBtn) {
+  let cooldown = 0;
+  resendBtn.addEventListener('click', () => {
+    cooldown = 30;
+    resendBtn.disabled = true;
+    const cd = setInterval(() => {
+      cooldown--;
+      resendBtn.textContent = cooldown > 0 ? `Resend in ${cooldown}s` : 'Resend code';
+      if (cooldown <= 0) { clearInterval(cd); resendBtn.disabled = false; }
+    }, 1000);
+  });
+}
+</script>
+</body>
+</html>

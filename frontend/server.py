@@ -129,12 +129,16 @@ def admin_required(f):
 @login_required
 def dashboard():
     role = session.get("role", "user")
+    username = session.get("admin", "")
+    profile_email = get_admin_email(username) or ""
     if role == "admin":
-        return render_template("dashboard.html", backend_url=_get_backend_url())
+        return render_template("dashboard.html", backend_url=_get_backend_url(),
+                               profile_email=profile_email)
     return render_template("user_dashboard.html",
-                           username=session["admin"],
+                           username=username,
                            backend_url=_get_backend_url(),
-                           user_machine=session.get("source_machine", ""))
+                           user_machine=session.get("source_machine", ""),
+                           profile_email=profile_email)
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -163,12 +167,56 @@ def login_page():
                 update_admin_os(username, os_type)
             else:
                 os_type = get_admin_os(username) if not is_superadmin else "auto"
-            session["admin"]          = username
-            session["backend_url"]    = backend_url
-            session["os_type"]        = os_type or "auto"
-            session["role"]           = "admin" if is_superadmin else get_user_role(username)
-            session["source_machine"] = "" if is_superadmin else get_user_machine(username)
-            return redirect(url_for("dashboard"))
+
+            pending_session = {
+                "admin":          username,
+                "backend_url":    backend_url,
+                "os_type":        os_type or "auto",
+                "role":           "admin" if is_superadmin else get_user_role(username),
+                "source_machine": "" if is_superadmin else get_user_machine(username),
+            }
+
+            # Superadmin skips MFA (no email in DB)
+            if is_superadmin:
+                for k, v in pending_session.items():
+                    session[k] = v
+                return redirect(url_for("dashboard"))
+
+            # Regular user → send MFA code
+            user_email = get_admin_email(username)
+            if not user_email:
+                # No email stored → skip MFA gracefully
+                for k, v in pending_session.items():
+                    session[k] = v
+                return redirect(url_for("dashboard"))
+
+            # Generate OTP and store state
+            otp   = "".join(str(secrets.randbelow(10)) for _ in range(6))
+            token = secrets.token_hex(32)
+            now   = datetime.now(timezone.utc).replace(tzinfo=None)
+            # Clean up any previous MFA token for this session
+            old = session.pop("_mfa_token", None)
+            if old and old in _mfa_codes:
+                del _mfa_codes[old]
+            _mfa_codes[token] = {
+                "otp":             otp,
+                "username":        username,
+                "email":           user_email,
+                "expires_at":      now + timedelta(minutes=10),
+                "attempts":        0,
+                "pending_session": pending_session,
+            }
+
+            if _send_mfa_email(user_email, username, otp):
+                session["_mfa_token"] = token
+                return redirect(url_for("mfa_verify"))
+            else:
+                # Email unavailable → complete login without MFA
+                del _mfa_codes[token]
+                for k, v in pending_session.items():
+                    session[k] = v
+                logging.warning("MFA email failed for %s — completing login without MFA", username)
+                return redirect(url_for("dashboard"))
         else:
             error = "Invalid username or password."
     return render_template("login.html", error=error, unverified_username="")
@@ -178,6 +226,75 @@ def login_page():
 def logout():
     session.clear()
     return redirect(url_for("login_page"))
+
+
+# ---------------------------------------------------------------------------
+# MFA — Email OTP verification
+# ---------------------------------------------------------------------------
+
+@app.route("/mfa", methods=["GET", "POST"])
+def mfa_verify():
+    token = session.get("_mfa_token")
+    if not token or token not in _mfa_codes:
+        return redirect(url_for("login_page"))
+
+    entry = _mfa_codes[token]
+    now   = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    # Expired
+    if now > entry["expires_at"]:
+        del _mfa_codes[token]
+        session.pop("_mfa_token", None)
+        return render_template("mfa.html", error="Code expired. Please sign in again.",
+                               email_hint="", expired=True)
+
+    error = ""
+    if request.method == "POST":
+        # Too many attempts
+        if entry["attempts"] >= 5:
+            del _mfa_codes[token]
+            session.pop("_mfa_token", None)
+            return redirect(url_for("login_page"))
+
+        otp_input = "".join(request.form.get("otp", "").split())  # strip spaces
+
+        entry["attempts"] += 1
+
+        if otp_input == entry["otp"]:
+            # ✓ Correct — complete login
+            for k, v in entry["pending_session"].items():
+                session[k] = v
+            session.pop("_mfa_token", None)
+            del _mfa_codes[token]
+            return redirect(url_for("dashboard"))
+        else:
+            remaining = 5 - entry["attempts"]
+            if remaining <= 0:
+                del _mfa_codes[token]
+                session.pop("_mfa_token", None)
+                return render_template("mfa.html",
+                                       error="Too many incorrect attempts. Please sign in again.",
+                                       email_hint="", expired=True)
+            error = f"Incorrect code — {remaining} attempt{'s' if remaining != 1 else ''} remaining."
+
+    email_hint = _mask_email(entry.get("email", ""))
+    return render_template("mfa.html", error=error, email_hint=email_hint, expired=False)
+
+
+@app.route("/mfa/resend", methods=["POST"])
+def mfa_resend():
+    token = session.get("_mfa_token")
+    if not token or token not in _mfa_codes:
+        return redirect(url_for("login_page"))
+
+    entry = _mfa_codes[token]
+    otp   = "".join(str(secrets.randbelow(10)) for _ in range(6))
+    now   = datetime.now(timezone.utc).replace(tzinfo=None)
+    entry["otp"]        = otp
+    entry["expires_at"] = now + timedelta(minutes=10)
+    entry["attempts"]   = 0
+    _send_mfa_email(entry["email"], entry["username"], otp)
+    return redirect(url_for("mfa_verify"))
 
 
 # ---------------------------------------------------------------------------
@@ -231,6 +348,8 @@ def register():
                          "Please ask your administrator to create an account for you.")
             elif username.lower() in {u.lower() for u in load_admins()}:
                 error = "Username already taken. Please choose another."
+            elif find_admin_by_email(email):
+                error = "An account with that email address already exists."
             else:
                 # Create account immediately as unverified so the username is reserved
                 if not add_admin(username, password, email=email, verified=False):
@@ -363,11 +482,14 @@ def profile():
 
         elif action == "update_email":
             email = request.form.get("email", "").strip()
-            if email and "@" not in email:
+            if email and ("@" not in email or "." not in email.split("@")[-1]):
                 error = "Enter a valid email address."
             else:
-                update_admin_email(username, email)
-                success = "Email updated successfully."
+                result = update_admin_email(username, email)
+                if result == "email_taken":
+                    error = "That email address is already in use by another account."
+                else:
+                    success = "Email updated successfully."
 
         elif action == "update_machine":
             machine = request.form.get("source_machine", "").strip()
@@ -399,6 +521,83 @@ _reset_tokens:            dict[str, dict] = {}  # token → {username, expires_a
 _pending_pairs:           dict[str, dict] = {}  # code  → {machine, expires_at}
 _health_cache:            dict[str, dict] = {}  # machine → latest health snapshot
 _pending_registrations:   dict[str, dict] = {}  # token → {username, password, email, expires_at}
+_mfa_codes:               dict[str, dict] = {}  # token → {otp, username, email, expires_at, attempts, pending_session}
+
+
+def _mask_email(email: str) -> str:
+    """Return a partially masked email: m***@gmail.com"""
+    if not email or "@" not in email:
+        return "your registered email"
+    local, domain = email.split("@", 1)
+    masked = local[0] + "***" if len(local) > 1 else "***"
+    return f"{masked}@{domain}"
+
+
+def _send_mfa_email(to_email: str, username: str, otp: str) -> bool:
+    """Send a 6-digit OTP verification code to the user."""
+    email_from = os.getenv("NOTIFY_EMAIL_FROM", "")
+    email_user = os.getenv("NOTIFY_EMAIL_USER", "")
+    email_pass = os.getenv("NOTIFY_EMAIL_PASS", "")
+    email_host = os.getenv("NOTIFY_EMAIL_HOST", "smtp.gmail.com")
+    email_port = int(os.getenv("NOTIFY_EMAIL_PORT", 587))
+
+    if not all([email_from, email_user, email_pass, to_email]):
+        return False
+
+    import uuid as _uuid
+    body_html = f"""<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:'Segoe UI',Arial,sans-serif;">
+<div style="max-width:480px;margin:32px auto;background:#fff;border-radius:10px;
+            overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.10);">
+  <div style="background:#0d1117;padding:28px 32px 22px;">
+    <p style="margin:0 0 4px;color:#8b949e;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;">
+      Log Sentinel AI
+    </p>
+    <h1 style="margin:0;color:#e6edf3;font-size:20px;font-weight:700;">
+      Verification Code
+    </h1>
+  </div>
+  <div style="padding:32px;">
+    <p style="margin:0 0 24px;color:#374151;font-size:14px;line-height:1.6;">
+      Hi <strong>{username}</strong>, use the code below to complete your sign-in.
+      It expires in <strong>10 minutes</strong>.
+    </p>
+    <div style="text-align:center;margin:0 0 28px;">
+      <div style="display:inline-block;background:#0d1117;border-radius:10px;
+                  padding:18px 36px;letter-spacing:12px;
+                  font-family:'Courier New',monospace;font-size:32px;
+                  font-weight:700;color:#17c3d8;border:1px solid #30363d;">
+        {otp}
+      </div>
+    </div>
+    <p style="margin:0;color:#9ca3af;font-size:12px;line-height:1.6;text-align:center;">
+      If you didn't try to sign in, ignore this email.<br>
+      Your account is safe — no action needed.
+    </p>
+  </div>
+  <div style="background:#f9fafb;padding:14px 32px;border-top:1px solid #e5e7eb;text-align:center;">
+    <p style="margin:0;color:#9ca3af;font-size:11px;">Log Sentinel AI Security Platform</p>
+  </div>
+</div>
+</body></html>"""
+
+    try:
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = f"[Log Sentinel AI] Your sign-in code: {otp}"
+        msg["From"]    = email_from
+        msg["To"]      = to_email
+        msg["Message-ID"] = f"<mfa-{_uuid.uuid4().hex}@logsentinel>"
+        msg.attach(MIMEText(body_html, "html", "utf-8"))
+        with smtplib.SMTP(email_host, email_port, timeout=10) as s:
+            s.ehlo(); s.starttls(); s.login(email_user, email_pass)
+            s.sendmail(email_from, to_email, msg.as_string())
+        logging.info("MFA code sent to %s", to_email)
+        return True
+    except Exception as exc:
+        logging.error("MFA email failed: %s", exc)
+        return False
 
 
 def _send_reset_email(to_email: str, username: str, token: str) -> bool:
